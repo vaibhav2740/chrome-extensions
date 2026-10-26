@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="boardWrap">
+    <div id="board"></div>
+    <svg id="arrows" viewBox="0 0 8 8"></svg>
+    <div id="evalbar"><div id="evalfill"></div></div>
+  </div>
+
+  <div id="best">
+    <span id="bestMove">—</span>
+    <span id="bestEval"></span>
+    <span id="depth"></span>
+  </div>
+  <div id="lines"></div>
+
+  <div class="row">
+    <button id="snap" title="Read the board currently shown on the page">📷 Snapshot</button>
+    <label><input type="checkbox" id="auto"> Auto-follow</label>
+    <label title="Drag pieces on this board to try moves"><input type="checkbox" id="play"> ✋ Play</label>
+    <button id="undo" title="Undo last move you played here">↶</button>
+    <button id="flip" title="Flip board">⇅</button>
+    <button id="close" title="Hide (click extension icon to show again)">✕</button>
+  </div>
+  <div class="row">
+    <input id="fen" spellcheck="false" placeholder="Paste FEN here…">
+    <button id="go">Analyze</button>
+  </div>
+  <div class="row small">
+    <label>Turn
+      <select id="turn"><option value="auto">auto</option><option value="w">white</option><option value="b">black</option></select>
+    </label>
+    <label>Depth <input id="depthMax" type="number" min="8" max="30" value="20"></label>
+    <label>Lines <select id="multipv"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
+  </div>
+  <div id="status"></div>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
