@@ -139,23 +139,44 @@
 
   // ---------- panel UI ----------
 
+  // The host is the glass shell; the panel iframe is transparent so the blur shows through.
   const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;top:80px;right:16px;width:372px;z-index:2147483647;' +
-    'box-shadow:0 8px 32px rgba(0,0,0,.45);border-radius:10px;overflow:hidden;background:#262421;' +
-    'font:12px system-ui,sans-serif;';
+  host.style.cssText = 'position:fixed;top:80px;right:16px;width:374px;z-index:2147483647;box-sizing:border-box;' +
+    'border-radius:32px;overflow:hidden;font:12px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;' +
+    'background:linear-gradient(180deg,rgba(46,50,70,.70),rgba(22,24,36,.74));' +
+    '-webkit-backdrop-filter:blur(30px) saturate(190%);backdrop-filter:blur(30px) saturate(190%);' +
+    'border:1px solid rgba(255,255,255,.16);' +
+    'box-shadow:0 26px 64px rgba(0,0,0,.45),0 4px 14px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.24);';
+
   const bar = document.createElement('div');
-  bar.textContent = '♞ Board Analyzer  — drag to move';
-  bar.style.cssText = 'height:24px;line-height:24px;padding:0 10px;background:#161512;color:#aaa;' +
-    'cursor:move;user-select:none;font-size:11px;';
+  bar.title = 'Drag to move';
+  bar.style.cssText = 'display:flex;align-items:center;gap:10px;height:46px;padding:0 18px;box-sizing:border-box;' +
+    'cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none;border-bottom:1px solid rgba(255,255,255,.07);' +
+    'background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0));';
+  const logo = document.createElement('img');
+  logo.src = chrome.runtime.getURL('icons/48.png');
+  logo.alt = '';
+  logo.draggable = false;
+  logo.style.cssText = 'width:24px;height:24px;display:block;flex:none;filter:drop-shadow(0 2px 5px rgba(0,0,0,.35));';
+  const title = document.createElement('span');
+  title.textContent = 'Board Analyzer';
+  title.style.cssText = 'font-size:13px;font-weight:650;letter-spacing:-.01em;color:rgba(255,255,255,.94);';
+  const grip = document.createElement('span');
+  grip.style.cssText = 'margin-left:auto;width:34px;height:5px;border-radius:999px;background:rgba(255,255,255,.22);flex:none;';
+  bar.append(logo, title, grip);
+
   const frame = document.createElement('iframe');
   frame.src = chrome.runtime.getURL('panel.html');
-  frame.style.cssText = 'width:100%;height:600px;border:0;display:block;background:#262421;';
+  // color-scheme must match the panel document's, otherwise the browser paints the frame opaque and kills the glass.
+  frame.style.cssText = 'width:100%;height:600px;border:0;display:block;background:transparent;color-scheme:normal;';
+  frame.setAttribute('allowtransparency', 'true');
   host.append(bar, frame);
   document.documentElement.appendChild(host);
 
   // drag (pointer capture keeps events flowing even over the iframe)
   let drag = null;
   bar.addEventListener('pointerdown', (e) => {
+    bar.style.cursor = 'grabbing';
     const r = host.getBoundingClientRect();
     drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
     bar.setPointerCapture(e.pointerId);
@@ -166,7 +187,7 @@
     host.style.top = Math.max(0, Math.min(innerHeight - 30, e.clientY - drag.dy)) + 'px';
     host.style.right = 'auto';
   });
-  bar.addEventListener('pointerup', () => { drag = null; });
+  bar.addEventListener('pointerup', () => { drag = null; bar.style.cursor = 'grab'; });
 
   const panelOrigin = new URL(frame.src).origin;
   window.addEventListener('message', async (e) => {
@@ -178,7 +199,7 @@
     } else if (d.type === 'close') {
       host.style.display = 'none';
     } else if (d.type === 'height') {
-      frame.style.height = Math.min(d.height, innerHeight - 40) + 'px';
+      frame.style.height = Math.max(200, Math.min(d.height, innerHeight - 100)) + 'px';
     }
   });
 

@@ -107,6 +107,11 @@ function applyTurnOverride(fen) {
   return f.join(' ');
 }
 
+function scoreClass(l) {
+  const v = l.mate != null ? l.mate : l.cp;
+  return v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+}
+
 function fmtScore(l) {
   if (!l) return '';
   if (l.mate != null) return (l.mate > 0 ? '+M' : '-M') + Math.abs(l.mate);
@@ -266,7 +271,7 @@ function renderAnalysis() {
 
   $('lines').innerHTML = lines
     .map((l) => l && l.pv.length
-      ? `<div class="line"><b>${fmtScore(l)}</b> ${pvToSan(curFen, l.pv)}</div>` : '')
+      ? `<div class="line"><b class="${scoreClass(l)}">${fmtScore(l)}</b> ${pvToSan(curFen, l.pv)}</div>` : '')
     .join('');
 
   // eval bar (white's perspective)
@@ -348,4 +353,14 @@ $('auto').onchange = () => {
 };
 
 setPosition(START);
-parent.postMessage({ type: 'height', height: document.body.scrollHeight + 16 }, '*');
+
+// Tell the host how tall the panel is, now and whenever the content changes (more engine lines, status text...).
+let lastHeight = 0;
+function reportHeight() {
+  const h = Math.ceil(document.body.getBoundingClientRect().height) + 4;
+  if (h === lastHeight) return;
+  lastHeight = h;
+  parent.postMessage({ type: 'height', height: h }, '*');
+}
+reportHeight();
+if (typeof ResizeObserver === 'function') new ResizeObserver(reportHeight).observe(document.body);

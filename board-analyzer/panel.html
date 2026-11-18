@@ -19,17 +19,31 @@
   <div id="lines"></div>
 
   <div class="row">
-    <button id="snap" title="Read the board currently shown on the page">📷 Snapshot</button>
-    <label><input type="checkbox" id="auto"> Auto-follow</label>
-    <label title="Drag pieces on this board to try moves"><input type="checkbox" id="play"> ✋ Play</label>
-    <button id="undo" title="Undo last move you played here">↶</button>
-    <button id="flip" title="Flip board">⇅</button>
-    <button id="close" title="Hide (click extension icon to show again)">✕</button>
+    <button id="snap" class="primary" title="Read the board currently shown on the page">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 5.2 4H3.5A1.5 1.5 0 0 0 2 5.5v6A1.5 1.5 0 0 0 3.5 13h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 4h-1.7L10 2.5H6zM8 11a2.7 2.7 0 1 1 0-5.4A2.7 2.7 0 0 1 8 11zm0-1.4a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z"/></svg>
+      Snapshot
+    </button>
+    <button id="undo" class="icon" title="Undo last move you played here" aria-label="Undo">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3.2 2.6 7l3.9 3.8V8.4c2.9 0 4.6.8 5.9 3.1-.1-3.4-2.2-5.7-5.9-5.9V3.2z"/></svg>
+    </button>
+    <button id="flip" class="icon" title="Flip board" aria-label="Flip board">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.2 2 2 5.2h2.2V12h1.9V5.2h2.2L5.2 2zm5.6 12L14 10.8h-2.2V4h-1.9v6.8H7.7L10.8 14z"/></svg>
+    </button>
+    <button id="close" class="icon" title="Hide (click extension icon to show again)" aria-label="Hide">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.2 3 8 6.8 11.8 3 13 4.2 9.2 8l3.8 3.8-1.2 1.2L8 9.2 4.2 13 3 11.8 6.8 8 3 4.2z"/></svg>
+    </button>
   </div>
+
+  <div class="row toggles">
+    <label class="chip"><input type="checkbox" id="auto"><span>Auto-follow</span></label>
+    <label class="chip" title="Drag pieces on this board to try moves"><input type="checkbox" id="play"><span>Play on board</span></label>
+  </div>
+
   <div class="row">
     <input id="fen" spellcheck="false" placeholder="Paste FEN here…">
-    <button id="go">Analyze</button>
+    <button id="go" class="primary">Analyze</button>
   </div>
+
   <div class="row small">
     <label>Turn
       <select id="turn"><option value="auto">auto</option><option value="w">white</option><option value="b">black</option></select>
