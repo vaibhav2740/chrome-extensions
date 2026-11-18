@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="color-scheme" content="light dark">
+  <title>Krillion Bot</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+
+    <header class="popup-header">
+      <div class="title-row">
+        <img class="app-icon" src="../icons/icon-48.png" alt="" width="38" height="38">
+        <div class="title-stack">
+          <h1>Krillion Bot</h1>
+          <span class="subtitle">AI sidekick for Puffer Party</span>
+        </div>
+      </div>
+      <span class="version">v1.4.0</span>
+    </header>
+
+    <!-- Live game panel -->
+    <section class="glass live-card" id="liveCard" aria-label="Live game">
+      <div class="live-header">
+        <span class="live-tab-badge" id="tabStatus">Connecting…</span>
+        <span class="live-avoid-badge" id="liveAvoid">0 used · 0 ready</span>
+      </div>
+
+      <div class="live-prompt-row">
+        <span class="label">Category</span>
+        <div class="prompt-text" id="liveQuestion">Looking for the category…</div>
+      </div>
+
+      <div class="live-answer-box">
+        <span class="label">Next answer</span>
+        <div class="answer-text" id="liveAnswer">Waiting for a category…</div>
+      </div>
+
+      <div class="live-btn-row">
+        <button id="liveNextBtn" class="btn btn-secondary" title="Skip this answer">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5v9l6-4.5-6-4.5zm7 0v9h1.8v-9H10z"/></svg>Skip
+        </button>
+        <button id="liveCopyBtn" class="btn btn-secondary" title="Copy the answer">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 2A1.5 1.5 0 0 0 4 3.5V4H3.5A1.5 1.5 0 0 0 2 5.5v7A1.5 1.5 0 0 0 3.5 14h5A1.5 1.5 0 0 0 10 12.5V12h.5a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 10.5 2h-5zM5 3.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5v-7z"/></svg>Copy
+        </button>
+        <button id="liveTypeBtn" class="btn btn-primary" title="Type and submit now (only on your turn)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.2 1.5 3 9h4l-.7 5.5L13 7H9l.2-5.5z"/></svg>Type now
+        </button>
+      </div>
+
+      <button id="toggleHudTabBtn" class="btn btn-ghost">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5C4.6 3.5 2.2 6 1.2 8c1 2 3.4 4.5 6.8 4.5s5.8-2.5 6.8-4.5c-1-2-3.4-4.5-6.8-4.5zM8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>Show / hide floating widget
+      </button>
+    </section>
+
+    <!-- AI provider health -->
+    <section class="providers" aria-label="AI providers">
+      <div class="provider-chip" id="chipGroq" data-state="idle">
+        <span class="p-dot"></span>
+        <div class="p-text"><span class="p-name">Groq</span><span class="p-meta" id="groqMeta">—</span></div>
+      </div>
+      <div class="provider-chip" id="chipGemini" data-state="idle">
+        <span class="p-dot"></span>
+        <div class="p-text"><span class="p-name">Gemini</span><span class="p-meta" id="geminiMeta">—</span></div>
+      </div>
+    </section>
+
+    <!-- Settings (autosave) -->
+    <div class="section-title">Settings</div>
+    <section class="glass group" aria-label="Settings">
+      <label class="row switch-row">
+        <span class="row-text"><span class="row-title">Auto-write</span><span class="hint">Types and submits when you hold the puffer</span></span>
+        <input type="checkbox" id="autoPlay" role="switch">
+        <span class="slider" aria-hidden="true"></span>
+      </label>
+
+      <label class="row switch-row">
+        <span class="row-text"><span class="row-title">Floating widget</span><span class="hint">Draggable controls on the game page</span></span>
+        <input type="checkbox" id="showHud" role="switch">
+        <span class="slider" aria-hidden="true"></span>
+      </label>
+
+      <div class="row column">
+        <div class="row-line">
+          <label class="row-title" for="thinkingDelay">Typing delay</label>
+          <span class="value-chip" id="delayValue">300ms</span>
+        </div>
+        <input type="range" id="thinkingDelay" min="100" max="4000" step="50" value="300">
+              </div>
+
+      <div class="row column">
+        <div class="row-line"><span class="row-title">AI provider</span></div>
+        <div class="segmented" role="radiogroup" aria-label="AI provider">
+          <label><input type="radio" name="provider" value="auto"><span>Auto</span></label>
+          <label><input type="radio" name="provider" value="groq"><span>Groq</span></label>
+          <label><input type="radio" name="provider" value="gemini"><span>Gemini</span></label>
+        </div>
+        <span class="hint">Auto picks the fastest healthy one and falls back if a limit is hit.</span>
+      </div>
+    </section>
+
+    <details class="glass group keys" id="keysBox">
+      <summary><span class="row-title">API keys &amp; models</span><svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+
+      <div class="row column">
+        <label class="row-title" for="model">Gemini model</label>
+        <select id="model">
+          <option value="gemini-flash-lite-latest">Flash-Lite — recommended</option>
+          <option value="gemini-3.1-flash-lite-preview">3.1 Flash-Lite</option>
+          <option value="gemini-3-flash-preview">3 Flash</option>
+          <option value="gemini-flash-latest">Flash (latest)</option>
+        </select>
+      </div>
+
+      <div class="row column">
+        <label class="row-title" for="apiKey">Gemini API key</label>
+        <div class="input-password-wrap">
+          <input type="password" id="apiKey" placeholder="AI Studio key" autocomplete="off" spellcheck="false">
+          <button type="button" id="toggleKeyVis" class="icon-btn" aria-label="Show or hide key">👁</button>
+        </div>
+      </div>
+
+      <div class="row column">
+        <label class="row-title" for="groqApiKey">Groq API key</label>
+        <div class="input-password-wrap">
+          <input type="password" id="groqApiKey" placeholder="gsk_…" autocomplete="off" spellcheck="false">
+          <button type="button" id="toggleGroqKeyVis" class="icon-btn" aria-label="Show or hide key">👁</button>
+        </div>
+        <span class="hint" id="groqHint">Used automatically when Gemini hits its limit, or first when Auto finds it faster. An empty field falls back to the built-in key.</span>
+      </div>
+    </details>
+
+    <div class="btn-group">
+      <button id="clearMemoryBtn" class="btn btn-secondary">Clear past memory</button>
+    </div>
+
+    <div id="apiStats" class="stats-line"></div>
+    <div id="statusMsg" class="status-msg" role="status" aria-live="polite"></div>
+
+    <footer class="footer">
+      <span>Play your turn: <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>P</kbd></span>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

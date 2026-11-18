@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "Krillion Bot",
+  "version": "1.4.0",
+  "description": "AI sidekick for Krillion Puffer Party: reads the category, lines up answers with Groq + Gemini, and plays your turn instantly.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://krillion.io/*",
+    "*://*.krillion.io/*",
+    "*://regqube.com/*",
+    "*://*.regqube.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.groq.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Krillion Bot"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://krillion.io/*",
+        "*://*.krillion.io/*",
+        "*://regqube.com/*",
+        "*://*.regqube.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "trigger_play_turn": {
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "mac": "Alt+Shift+P"
+      },
+      "description": "Play my turn now (types the next answer if you hold the puffer)"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "minimum_chrome_version": "110"
+}

@@ -1,0 +1,343 @@
+/* RegQube AI Player - in-page HUD. Liquid-glass panel; every rule is scoped under #regqube-ai-hud and the
+   page's own styles (Tailwind resets, element selectors) are reverted so the game can never restyle it. */
+
+/* Reset HTML elements only. `all: revert` on SVG shapes would also wipe their geometry attributes (d, width, rx...). */
+#regqube-ai-hud :where(div, span, button, label, input),
+#regqube-ai-hud :where(div, span, button, label, input)::before,
+#regqube-ai-hud :where(div, span, button, label, input)::after {
+  all: revert;
+  box-sizing: border-box;
+}
+#regqube-ai-hud svg { box-sizing: border-box; }
+
+#regqube-ai-hud {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  width: 316px;
+  box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.92);
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  user-select: none;
+  -webkit-user-select: none;
+  background: linear-gradient(180deg, rgba(48, 52, 72, 0.62), rgba(22, 24, 36, 0.62));
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 32px;
+  box-shadow:
+    0 26px 64px rgba(0, 0, 0, 0.45),
+    0 4px 14px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  animation: ai-hud-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: width 0.22s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+/* soft specular sheen across the top, like light on glass */
+#regqube-ai-hud::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 38%);
+}
+
+#regqube-ai-hud.dragging {
+  opacity: 0.94;
+  box-shadow: 0 34px 72px rgba(0, 0, 0, 0.55), 0 6px 18px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+@keyframes ai-hud-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Header ---------- */
+#regqube-ai-hud .ai-hud-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 13px 12px 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  cursor: grab;
+  touch-action: none;
+}
+#regqube-ai-hud.dragging .ai-hud-header { cursor: grabbing; }
+
+#regqube-ai-hud .ai-hud-title-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+#regqube-ai-hud .ai-hud-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+#regqube-ai-hud .ai-hud-dot[data-state="armed"] { background: #30d158; box-shadow: 0 0 10px rgba(48, 209, 88, 0.75); }
+#regqube-ai-hud .ai-hud-dot[data-state="warn"] { background: #ffd60a; box-shadow: 0 0 10px rgba(255, 214, 10, 0.6); }
+
+#regqube-ai-hud .ai-hud-title {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+}
+
+#regqube-ai-hud .ai-hud-turn {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(235, 238, 255, 0.6);
+  background: rgba(255, 255, 255, 0.10);
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+}
+#regqube-ai-hud .ai-hud-turn.on {
+  color: #04210f;
+  background: linear-gradient(180deg, #5df08a, #30d158);
+  box-shadow: 0 0 14px rgba(48, 209, 88, 0.55);
+  animation: ai-turn-pulse 2.4s ease-in-out infinite;
+}
+#regqube-ai-hud .ai-hud-turn.out { color: #ffb3ad; background: rgba(255, 69, 58, 0.18); }
+
+@keyframes ai-turn-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(48, 209, 88, 0.45); }
+  50% { box-shadow: 0 0 20px rgba(48, 209, 88, 0.75); }
+}
+
+#regqube-ai-hud .ai-hud-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+
+#regqube-ai-hud .ai-hud-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(235, 238, 255, 0.55);
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, transform 0.12s ease;
+}
+#regqube-ai-hud .ai-hud-icon-btn svg { width: 14px; height: 14px; fill: currentColor; stroke: none; display: block; }
+#regqube-ai-hud .ai-hud-icon-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.14); }
+#regqube-ai-hud .ai-hud-icon-btn:active { transform: scale(0.92); }
+#regqube-ai-hud .ai-hud-close-btn:hover { color: #ff6961; background: rgba(255, 69, 58, 0.2); }
+
+/* ---------- Body ---------- */
+#regqube-ai-hud .ai-hud-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 16px 18px;
+}
+
+#regqube-ai-hud .ai-hud-prompt-row { display: flex; flex-direction: column; gap: 4px; }
+
+#regqube-ai-hud .ai-hud-label,
+#regqube-ai-hud .ai-hud-answer-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(235, 238, 255, 0.45);
+}
+
+#regqube-ai-hud .ai-hud-prompt-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+/* ---------- Answer card ---------- */
+#regqube-ai-hud .ai-hud-answer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 15px 18px 16px;
+  background: rgba(255, 255, 255, 0.075);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 26px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+#regqube-ai-hud .ai-hud-answer-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+#regqube-ai-hud .ai-hud-avoid-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(235, 238, 255, 0.62);
+  background: rgba(255, 255, 255, 0.09);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+#regqube-ai-hud .ai-hud-answer-display {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: 0 0 22px rgba(94, 140, 255, 0.4);
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#regqube-ai-hud .ai-hud-answer-display.swap { animation: ai-answer-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes ai-answer-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+
+#regqube-ai-hud .ai-hud-why {
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(255, 214, 10, 0.85);
+  word-break: break-word;
+  max-height: 4em;
+  overflow: hidden;
+}
+#regqube-ai-hud .ai-hud-why:empty { display: none; }
+
+/* ---------- Buttons ---------- */
+#regqube-ai-hud .ai-hud-button-grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; }
+
+#regqube-ai-hud .ai-hud-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.10);
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.12s ease, box-shadow 0.16s ease;
+}
+#regqube-ai-hud .ai-hud-btn svg { width: 13px; height: 13px; fill: currentColor; stroke: none; flex: none; display: block; }
+#regqube-ai-hud .ai-hud-btn:hover { background: rgba(255, 255, 255, 0.17); }
+#regqube-ai-hud .ai-hud-btn:active { transform: scale(0.96); }
+
+#regqube-ai-hud .ai-btn-primary,
+#regqube-ai-hud .ai-btn-accent {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, #2e9bff 0%, #0a84ff 55%, #0066d6 100%);
+  box-shadow: 0 4px 14px rgba(10, 132, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+#regqube-ai-hud .ai-btn-primary:hover,
+#regqube-ai-hud .ai-btn-accent:hover { background: linear-gradient(180deg, #4aa8ff 0%, #1a8cff 55%, #0a70e6 100%); }
+
+#regqube-ai-hud button:focus-visible,
+#regqube-ai-hud .ai-hud-switch input:focus-visible + .ai-hud-switch-slider {
+  outline: 2px solid #0a84ff;
+  outline-offset: 2px;
+}
+
+/* ---------- Auto-write toggle ---------- */
+#regqube-ai-hud .ai-hud-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 12px 16px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 24px;
+}
+#regqube-ai-hud .ai-hud-toggle-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+#regqube-ai-hud .ai-hud-toggle-label span:first-child { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
+#regqube-ai-hud .ai-hud-toggle-sub { font-size: 10.5px; color: rgba(235, 238, 255, 0.45); }
+
+#regqube-ai-hud .ai-hud-switch { position: relative; display: inline-block; flex: none; width: 46px; height: 28px; cursor: pointer; }
+#regqube-ai-hud .ai-hud-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+#regqube-ai-hud .ai-hud-switch-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: background 0.22s ease;
+  pointer-events: none;
+}
+#regqube-ai-hud .ai-hud-switch-slider::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+#regqube-ai-hud .ai-hud-switch input:checked + .ai-hud-switch-slider { background: #30d158; box-shadow: none; }
+#regqube-ai-hud .ai-hud-switch input:checked + .ai-hud-switch-slider::before { transform: translateX(18px); }
+
+/* ---------- Status ---------- */
+#regqube-ai-hud .ai-hud-footer-row { display: flex; align-items: center; min-height: 16px; }
+#regqube-ai-hud .ai-hud-status-badge {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(235, 238, 255, 0.6);
+}
+#regqube-ai-hud .ai-hud-status-badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+
+/* ---------- Minimized pill ---------- */
+#regqube-ai-hud.minimized { width: 268px; border-radius: 999px; }
+#regqube-ai-hud.minimized #ai-hud-debug-btn { display: none; }
+#regqube-ai-hud.minimized .ai-hud-header { border-bottom: 0; padding: 9px 10px 9px 18px; }
+#regqube-ai-hud.minimized .ai-hud-body { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #regqube-ai-hud,
+  #regqube-ai-hud *,
+  #regqube-ai-hud *::before,
+  #regqube-ai-hud *::after { animation: none !important; transition: none !important; }
+}
