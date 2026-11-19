@@ -1,4 +1,6 @@
 import { Chess } from './lib/chess.js';
+import { initScanUI } from './scan-ui.js';
+import { createScanner } from './scanner/client.js';
 
 const $ = (id) => document.getElementById(id);
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -425,6 +427,7 @@ $('board').addEventListener('pointercancel', () => {
 // Keyboard: ← undo, → redo, Esc deselect / cancel promotion (ignored while typing in a field).
 document.addEventListener('keydown', (e) => {
   if (/^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+  if (scanUi && scanUi.isOpen()) return; // the scan sheet has its own keys
   if (e.key === 'ArrowLeft') { e.preventDefault(); undoMove(); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); redoMove(); }
   else if (e.key === 'Escape') { if (pendingPromo) hidePromo(); else { sel = null; renderBoard(); } }
@@ -527,6 +530,7 @@ function askSnapshot(auto) {
 window.addEventListener('message', (e) => {
   const d = e.data || {};
   if (d.type === 'toggleCompact') { setCompact(!compact); return; }
+  if (d.type === 'captured') { if (capWait && d.id === capWait.id) { clearTimeout(capWait.timer); capWait.resolve(d); capWait = null; } return; }
   if (d.type !== 'snapshot') return;
   if (!d.fen) { if (!d.auto) setStatus('No board found on this page. Paste a FEN instead.', true); return; }
   if (d.auto) {
@@ -566,6 +570,40 @@ $('copyFen').onclick = async () => {
 $('glass').onchange = () => { saveGlassMode($('glass').value); applyGlass(); };
 loadGlassMode().then((mode) => { $('glass').value = mode; applyGlass(); });
 loadCompact().then((on) => { compact = on; applyCompact(); });
+
+// ---------- scan a board from a picture ----------
+// The host page takes the screenshot (it hides this panel first so the panel is not in the picture).
+let capWait = null;
+let capId = 0;
+function captureTab() {
+  return new Promise((resolve) => {
+    const id = ++capId;
+    const timer = setTimeout(() => {
+      if (capWait && capWait.id === id) {
+        capWait = null;
+        resolve({ ok: false, error: 'The page did not answer. Paste a screenshot instead.' });
+      }
+    }, 8000);
+    capWait = { id, resolve, timer };
+    parent.postMessage({ type: 'capture', id }, '*');
+  });
+}
+
+const scanUi = initScanUI({
+  $,
+  makeScanner: (onStage) => createScanner({ onStage }),
+  capture: captureTab,
+  onAnalyze: ({ fen, flipped: bottomIsBlack, summary }) => {
+    history = []; future = [];
+    $('turn').value = 'auto';
+    flipped = bottomIsBlack; // show the board the way the picture showed it
+    lastAutoFen = null;
+    if ($('auto').checked) { $('auto').checked = false; $('auto').onchange(); }
+    if (setPosition(fen, summary)) setStatus('Position ' + summary + '. Auto-follow is off; press Snapshot to go back to the page.');
+  },
+});
+$('scanBtn').onclick = () => scanUi.open();
+window.__scanUi = scanUi; // lets the offline tests inspect the sheet; invisible to web pages (extension origin)
 
 setPosition(START);
 

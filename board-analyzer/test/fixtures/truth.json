@@ -1,0 +1,58 @@
+{
+ "boards": {
+  "P1_start__A_cburnett_brown.png": {
+   "placement": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+   "bottom": "white"
+  },
+  "P2_italian__B_merida_green.png": {
+   "placement": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R",
+   "bottom": "white"
+  },
+  "P3_najdorf__C_alpha_blue.png": {
+   "placement": "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R",
+   "bottom": "white"
+  },
+  "P4_rookend__E_staunty_brown.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "white"
+  },
+  "P5_busy__D_video_degraded.png": {
+   "placement": "r2q1rk1/pp2bppp/2n1pn2/2pp4/3P1B2/2P1PN2/PP1NBPPP/R2Q1RK1",
+   "bottom": "white"
+  }
+ },
+ "pages": {
+  "P4_rookend__A__b__1280x720_s408.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "black"
+  },
+  "P4_rookend__C__b__1280x720_s563.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "black"
+  },
+  "P4_rookend__C__w__1440x900_s596.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "white"
+  },
+  "P4_rookend__B__b__1920x1080_s551.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "black"
+  },
+  "P4_rookend__E__b__1920x1080_s734.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "black"
+  },
+  "P1_start__A__w__1280x720_s329.png": {
+   "placement": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+   "bottom": "white"
+  },
+  "P4_rookend__B__w__1440x900_s608_deg.png": {
+   "placement": "8/5pk1/6p1/3R4/8/6P1/5PK1/3r4",
+   "bottom": "white"
+  },
+  "P2_italian__E__w__1280x720_s433_deg.png": {
+   "placement": "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R",
+   "bottom": "white"
+  }
+ }
+}

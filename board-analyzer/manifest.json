@@ -1,14 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Board Analyzer",
-  "version": "1.3.0",
-  "description": "Floating analysis board with on-device Stockfish 19. Reads positions on chess.com and lichess for best moves, eval and top lines.",
+  "version": "1.4.0",
+  "description": "Floating analysis board with on-device Stockfish. Reads positions from chess.com and lichess, or scans a board from any picture or video frame. Best moves, eval and top lines.",
   "permissions": [
+    "activeTab",
     "scripting",
     "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -31,8 +29,10 @@
         "panel.html",
         "panel.js",
         "panel.css",
+        "scan-ui.js",
         "lib/*",
         "engine/*",
+        "scanner/*",
         "icons/*"
       ],
       "matches": [

@@ -23,7 +23,23 @@ function mainWorldFen() {
   return null;
 }
 
+// A picture of the tab the message came from, for the board scanner. Needs the tab to have been activated by a
+// click on the toolbar icon (or the shortcut): that is what "activeTab" grants.
+function captureError(e) {
+  const m = String((e && e.message) || e);
+  if (/activeTab|permission|cannot access|not allowed/i.test(m)) {
+    return 'Chrome only allows capturing after you click the Board Analyzer icon on this tab. Click it once, or paste a screenshot instead.';
+  }
+  return 'Could not capture this tab: ' + m;
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'capture' && sender.tab) {
+    chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: 'png' })
+      .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+      .catch((e) => sendResponse({ ok: false, error: captureError(e) }));
+    return true; // async response
+  }
   if (msg && msg.type === 'mainFen' && sender.tab) {
     chrome.scripting
       .executeScript({ target: { tabId: sender.tab.id }, world: 'MAIN', func: mainWorldFen })

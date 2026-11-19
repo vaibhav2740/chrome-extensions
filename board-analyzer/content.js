@@ -293,6 +293,28 @@
   bar.addEventListener('pointerup', endDrag);
   bar.addEventListener('pointercancel', endDrag);
 
+  // Picture of the visible page for the scanner. The panel hides itself first so it is not in the picture; the
+  // background does the capture (Chrome only allows it after the person clicked the toolbar icon on this tab).
+  async function captureVisibleTab() {
+    const was = host.style.visibility;
+    host.style.visibility = 'hidden';
+    try {
+      // let the page repaint without the panel before the screenshot is taken
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 80))));
+      const res = await new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage({ type: 'capture' }, (r) => {
+            const err = chrome.runtime.lastError;
+            resolve(r || { ok: false, error: err ? err.message : 'No answer from the extension.' });
+          });
+        } catch (e) { resolve({ ok: false, error: String((e && e.message) || e) }); }
+      });
+      return res;
+    } finally {
+      host.style.visibility = was;
+    }
+  }
+
   const panelOrigin = new URL(frame.src).origin;
   window.addEventListener('message', async (e) => {
     if (e.origin !== panelOrigin || e.source !== frame.contentWindow) return;
@@ -300,6 +322,9 @@
     if (d.type === 'snapshot') {
       const s = await snapshot();
       frame.contentWindow.postMessage({ type: 'snapshot', ...s, auto: !!d.auto }, panelOrigin);
+    } else if (d.type === 'capture') {
+      const res = await captureVisibleTab();
+      frame.contentWindow.postMessage({ type: 'captured', id: d.id, ...res }, panelOrigin);
     } else if (d.type === 'close') {
       host.style.display = 'none';
     } else if (d.type === 'glass') {

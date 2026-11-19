@@ -5,6 +5,7 @@
   <link rel="stylesheet" href="panel.css">
 </head>
 <body>
+  <div id="main">
   <div id="boardWrap">
     <div id="board"></div>
     <svg id="arrows" viewBox="0 0 8 8"></svg>
@@ -23,6 +24,9 @@
     <button id="snap" class="primary" title="Read the board currently shown on the page">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 5.2 4H3.5A1.5 1.5 0 0 0 2 5.5v6A1.5 1.5 0 0 0 3.5 13h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 4h-1.7L10 2.5H6zM8 11a2.7 2.7 0 1 1 0-5.4A2.7 2.7 0 0 1 8 11zm0-1.4a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z"/></svg>
       Snapshot
+    </button>
+    <button id="scanBtn" class="icon" title="Scan a board from a picture: a video, a screenshot, a photo" aria-label="Scan a board from a picture">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h4v1.5H3.5V6H2V2zm12 0v4h-1.5V3.5H10V2h4zM2 14v-4h1.5v2.5H6V14H2zm12 0h-4v-1.5h2.5V10H14v4zM2.5 7.25h11v1.5h-11z"/></svg>
     </button>
     <button id="undo" class="icon" title="Undo (←)" aria-label="Undo">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3.2 2.6 7l3.9 3.8V8.4c2.9 0 4.6.8 5.9 3.1-.1-3.4-2.2-5.7-5.9-5.9V3.2z"/></svg>
@@ -65,6 +69,83 @@
     </label>
   </div>
   <div id="status"></div>
+  </div>
+
+  <!-- Scan a board from a picture -->
+  <section id="scan" hidden aria-label="Scan a board">
+    <div class="scan-head">
+      <button id="scanBack" class="icon" title="Back to the board" aria-label="Back to the board">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 2.6 4.4 8l5.4 5.4 1.1-1.1L6.6 8l4.3-4.3-1.1-1.1z"/></svg>
+      </button>
+      <div class="scan-title">Scan a board</div>
+    </div>
+
+    <div id="scanPick">
+      <div id="scanDrop" class="dropzone">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h4v1.5H3.5V6H2V2zm12 0v4h-1.5V3.5H10V2h4zM2 14v-4h1.5v2.5H6V14H2zm12 0h-4v-1.5h2.5V10H14v4zM2.5 7.25h11v1.5h-11z"/></svg>
+        <div class="dz-title">Drop, paste or choose a picture</div>
+        <div class="dz-sub">Press Ctrl+V (⌘V on a Mac) to paste a screenshot</div>
+      </div>
+      <div class="row">
+        <button id="scanCapture" class="primary" title="Take a picture of the page you are on">Capture this tab</button>
+        <button id="scanFile">Choose file…</button>
+      </div>
+      <input id="scanFileInput" type="file" accept="image/*" hidden>
+      <p id="scanPickMsg" class="scan-note" role="status"></p>
+      <p class="scan-note">Works on videos, articles, PDFs and chess sites. Reading happens on this device: the picture is never uploaded.</p>
+      <p id="scanLowMem" class="scan-note warn" hidden>This device has little memory, so the first read may be slow. Close other tabs if it struggles.</p>
+    </div>
+
+    <div id="scanPic" hidden>
+      <div class="picstage"><div id="picWrap"><img id="picImg" alt="The picture to read" draggable="false"><div id="picBox" hidden></div></div></div>
+      <p id="picHint" class="scan-note"></p>
+      <div class="row">
+        <button id="scanRetake">Other picture</button>
+        <button id="scanRead" class="primary">Read position</button>
+      </div>
+    </div>
+
+    <div id="scanBusy" hidden>
+      <div id="scanBusySpin" class="spinner" aria-hidden="true"></div>
+      <div id="busyText" class="scan-note" role="status">Loading the board reader…</div>
+      <div class="row" id="scanBusyErr" hidden>
+        <button id="scanBusyBack">Back</button>
+        <button id="scanBusyRetry" class="primary">Try again</button>
+      </div>
+      <div class="row"><button id="scanBusyCancel">Cancel</button></div>
+    </div>
+
+    <div id="scanResult" hidden>
+      <div id="sBoardWrap"><div id="sBoard"></div></div>
+      <div id="sPalette" class="palette" role="toolbar" aria-label="Pieces"></div>
+      <div class="row segrow">
+        <div class="seglabel">Bottom of the picture
+          <div class="seg" role="radiogroup" aria-label="Side at the bottom of the picture">
+            <label><input type="radio" name="sBottom" value="white"><span>White</span></label>
+            <label><input type="radio" name="sBottom" value="black"><span>Black</span></label>
+          </div>
+        </div>
+        <div class="seglabel">To move
+          <div class="seg" role="radiogroup" aria-label="Side to move">
+            <label><input type="radio" name="sTurn" value="w"><span>White</span></label>
+            <label><input type="radio" name="sTurn" value="b"><span>Black</span></label>
+          </div>
+        </div>
+      </div>
+      <div class="row castle" role="group" aria-label="Castling rights">
+        <label class="chip mini" title="White can castle kingside"><input type="checkbox" id="sCK"><span>W O-O</span></label>
+        <label class="chip mini" title="White can castle queenside"><input type="checkbox" id="sCQ"><span>W O-O-O</span></label>
+        <label class="chip mini" title="Black can castle kingside"><input type="checkbox" id="sCk"><span>B O-O</span></label>
+        <label class="chip mini" title="Black can castle queenside"><input type="checkbox" id="sCq"><span>B O-O-O</span></label>
+      </div>
+      <p id="sNote" class="scan-note" role="status"></p>
+      <div class="row">
+        <button id="sBackToPic" title="Back to the picture">Picture</button>
+        <button id="sClear" title="Remove every piece">Clear</button>
+        <button id="sAnalyze" class="primary">Analyze</button>
+      </div>
+    </div>
+  </section>
 
   <script type="module" src="panel.js"></script>
 </body>
