@@ -941,6 +941,17 @@
     input.dispatchEvent(new KeyboardEvent("keyup", opts));
   }
 
+  function getKeyboardCodes(char) {
+    if (char === " ") return { code: "Space", keyCode: 32 };
+    if (char >= "0" && char <= "9") return { code: `Digit${char}`, keyCode: char.charCodeAt(0) };
+    if (/[a-zA-Z]/.test(char)) return { code: `Key${char.toUpperCase()}`, keyCode: char.toUpperCase().charCodeAt(0) };
+    if (char === "-") return { code: "Minus", keyCode: 189 };
+    if (char === ".") return { code: "Period", keyCode: 190 };
+    if (char === "'" || char === "’") return { code: "Quote", keyCode: 222 };
+    if (char === ",") return { code: "Comma", keyCode: 188 };
+    return { code: "", keyCode: char.charCodeAt(0) };
+  }
+
   // Types `word` into `input` character-by-character with realistic human cadence,
   // respecting React 18 synthetic input events, panic retry acceleration, and fuse protection.
   async function typeHuman(input, word, { wpm = 100, isRetry = false, turnStartTime = 0, stillMine, epoch } = {}) {
@@ -975,12 +986,18 @@
       const char = word[i];
       typedSoFar += char;
 
-      // 1. Dispatch keydown
-      const keyCode = char.toUpperCase().charCodeAt(0);
-      const keyOpts = { key: char, code: `Key${char.toUpperCase()}`, keyCode, which: keyCode, bubbles: true, cancelable: true, composed: true };
+      // 1. Dispatch keydown with proper W3C code mapping
+      const { code, keyCode } = getKeyboardCodes(char);
+      const keyOpts = { key: char, code: code || `Key${char.toUpperCase()}`, keyCode, which: keyCode, bubbles: true, cancelable: true, composed: true };
       input.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
 
-      // 2. Set native value & dispatch input event for React 18
+      // 2. Dispatch beforeinput (W3C Input Events Level 2)
+      input.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true, cancelable: true, composed: true,
+        inputType: "insertText", data: char,
+      }));
+
+      // 3. Set native value descriptor & dispatch input event for React 18
       if (setter) setter.call(input, typedSoFar);
       else input.value = typedSoFar;
 
@@ -989,7 +1006,7 @@
         inputType: "insertText", data: char,
       }));
 
-      // 3. Dispatch keyup
+      // 4. Dispatch keyup
       input.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
 
       // Humanized cadence calculation:
@@ -1774,6 +1791,7 @@
     S.epoch++;
     clearInterval(S.heartbeat);
     clearTimeout(S.tickTimer);
+    clearTimeout(gameStatsTimer);
     observer.disconnect();
     for (const fn of cleanups) {
       try { fn(); } catch (e) { /* context already gone */ }
