@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Pawnshot: Chess Board Scanner & Stockfish Analysis",
+  "name": "Pawnshot: Chess Video Analysis & Position Scanner",
   "short_name": "Pawnshot",
   "version": "2.0.0",
-  "description": "Scan a chess board from any YouTube video, picture or web page and analyze it with Stockfish on your device. Fair-play safe.",
+  "description": "Follow a chess video move by move with Stockfish on your device. Scan a board from YouTube, a screenshot or picture. Fair-play safe.",
   "homepage_url": "https://github.com/vaibhav2740/chrome-extensions/tree/main/board-analyzer",
   "permissions": [
     "activeTab",

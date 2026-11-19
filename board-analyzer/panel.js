@@ -5,12 +5,13 @@ import { createCropSheet } from './crop-ui.js';
 import { createScanFlow } from './scan-flow.js';
 import { createEngineClient } from './engine-client.js';
 import { chesscomUrl, copyText, lichessUrl, openExternal } from './links.js';
-import { findMove, fmtScore, normalizeFen, pvToSan, scoreClass } from './notation.js';
+import { findLine, fmtScore, normalizeFen, pvToSan, scoreClass } from './notation.js';
+import { REGION, alignBoard, fastMove } from './video-track.js';
 import {
   effectiveGlass, loadCompact, loadDepth, loadGlassMode, loadLines, loadTheme, onSettingsChange,
   saveCompact, saveDepth, saveLines, weakDevice,
 } from './settings.js';
-import { FREE_LIMITS, THEMES, limitsFor, loadPremium, scansLeft, themeAllowed, useScan } from './plan.js';
+import { FREE_LIMITS, THEMES, followLeft, limitsFor, loadPremium, scansLeft, themeAllowed, useFollow, useScan } from './plan.js';
 import { createScanner } from './scanner/client.js';
 import { gridToPlacement, rotateGrid } from './scanner/core.js';
 
@@ -28,7 +29,8 @@ let autoTimer = null;
 // ---------- plan (Free / Premium) ----------
 let premium = false;
 let limits = FREE_LIMITS;
-let left = FREE_LIMITS.scansPerDay; // picture scans left today on the free plan
+let left = FREE_LIMITS.scansPerDay; // picture scans left today on the free plan (unlimited for now)
+let followMs = FREE_LIMITS.followMinutes * 60000; // minutes of Follow on a video left today on the free plan
 
 // ---------- the page around the panel (told by the host, content.js) ----------
 // site: chess site or null; locked: a game is being played on this tab (fair play); board: the page has a chess
@@ -245,7 +247,16 @@ function undoMove() {
 function redoMove() {
   if (page.locked) return;
   const next = future.pop();
-  if (!next) return;
+  if (!next) {
+    // following a video and looking back: → at the end catches up with the video
+    if (follow.mode === 'video' && track.live && !atLive()) {
+      history.push({ fen: curFen, lastMove });
+      $('turn').value = 'auto';
+      setPosition(track.live, 'video: caught up', { lastMove: track.liveLast });
+      track.live = curFen;
+    }
+    return;
+  }
   history.push({ fen: curFen, lastMove });
   $('turn').value = 'auto';
   setPosition(next.fen, 'redo', { lastMove: next.lastMove });
@@ -524,6 +535,7 @@ window.addEventListener('message', (e) => {
   if (d.type === 'page') { onPage(d); return; }
   if (d.type === 'shown') { onShown(!!d.visible); return; }
   if (d.type === 'followFrame') { onFollowFrame(d); return; }
+  if (d.type === 'followTiles') { onFollowTiles(d); return; }
   if (d.type === 'followError') { onFollowError(d.error); return; }
   if (d.id && answered(d)) return;
   if (d.type !== 'snapshot' || d.id) return;
@@ -579,7 +591,8 @@ function lowMemoryHint() {
   if (weakDevice()) setStatus('This device is on the slow side, so reading a picture may take a few seconds.');
 }
 
-// The free plan reads a few pictures a day. Returns false (and explains) when today's are used up.
+// Picture scans have a daily allowance on the free plan (unlimited for now, see plan.js). Returns false (and explains)
+// when today's are used up.
 async function canScan() {
   if (premium) return true;
   left = await scansLeft(false);
@@ -601,7 +614,7 @@ async function readVideo() {
   if (v.locked) { onPage({ ...page, locked: true, reason: v.error }); return { ok: false, kind: 'cancelled' }; }
   if (!v.ok || !v.blob) return null;
   const out = await flow.scanBlob(v.blob, null, 'video');
-  if (out.ok) out.frameSize = v.size;
+  out.frameSize = v.size;
   return out;
 }
 
@@ -651,16 +664,21 @@ async function snapshot(ev) {
 // A picture the person chose, pasted or dropped, or the boxed part of the last one.
 async function readPicture(blob, crop = null) {
   if (page.locked) return;
+  const fromVideo = crop && blob === lastShot && shotFrame; // the board selected on a frame of the video
   if (busy) { cycle++; flow.cancel(); }
   const token = ++cycle;
   hideNote();
   setBusy(true, 'Reading…');
   if (!(await canScan())) { if (token === cycle) setBusy(false); return; }
   lowMemoryHint();
-  const out = await flow.scanBlob(blob, crop, 'picture');
+  const out = await flow.scanBlob(blob, crop, fromVideo ? 'video' : 'picture');
   if (token !== cycle) return;
   setBusy(false);
   countScan(out);
+  if (fromVideo) {
+    out.frameSize = fromVideo;
+    if (out.ok && out.result.pieces >= 3) rememberVideoBoard(out); // Follow then watches the selected area
+  }
   handleOutcome(out);
 }
 
@@ -674,7 +692,7 @@ function acceptPicture(file) {
 
 function handleOutcome(out) {
   if (out.kind === 'cancelled') return;
-  if (out.blob) lastShot = out.blob;
+  if (out.blob) { lastShot = out.blob; shotFrame = out.source === 'video' ? out.frameSize || null : null; }
   if (out.ok) { applyScan(out); return; }
   const pick = { label: 'Choose a picture…', run: () => $('pictureInput').click() };
   const select = { label: 'Select board…', run: openCrop };
@@ -760,11 +778,75 @@ function turnAround() {
 
 // ---------- Follow ----------
 // On chess.com and lichess: re-read the page's board data every 0.8 s (free).
-// On a video (Premium): the host watches the board area in the video and sends it over whenever the position has
-// changed; the panel reads it and, when it is one legal move away, plays that move, so turn, castling and the move
-// history (← / →) stay right.
+// On a video (Premium): the host watches the board area and, each time it settles after a change, sends a small
+// thumbnail (followTiles). Usually the move is found from that alone (video-track.js, about a millisecond). When it
+// is not clear, and in quiet moments to make sure, the panel asks for a sharp picture (followGrab) and reads it with
+// the neural reader (followFrame). Moves are played as moves, so turn, castling and the move list (← / →) stay right;
+// moves that came too fast to see one by one are filled in (findLine).
 
 const follow = { mode: null, board: null, fails: 0, relocating: false };
+
+// What the video shows now ("live"), which is not always what the board here shows: the person may be looking back
+// with ←. Thumbnails are compared with `ref`, a thumbnail of the live position; `box` is where the board is in it.
+const track = {
+  live: null, liveLast: null, recent: [], black: null, trust: 0,
+  ref: null, refFen: null, box: null, size: REGION,
+  unverified: 0, timer: null, asked: 0, reading: false, pending: null,
+};
+function resetPicture() { // the board moved in the video, or Follow stopped: the old thumbnail means nothing now
+  clearTimeout(track.timer);
+  Object.assign(track, { ref: null, refFen: null, box: null, unverified: 0, timer: null, asked: 0, pending: null });
+}
+function resetTrack() {
+  resetPicture();
+  Object.assign(track, { live: null, liveLast: null, recent: [], black: null, reading: false, trust: 0 });
+}
+const sameSpot = (a, b) => !!a && !!b && a.split(' ').slice(0, 3).join(' ') === b.split(' ').slice(0, 3).join(' ');
+const liveFen = () => track.live || curFen;
+const atLive = () => !track.live || sameSpot(curFen, track.live);
+
+function askFrame() {
+  if (track.asked && Date.now() - track.asked < 4000) return; // asked already (and ask again if it got lost)
+  track.asked = Date.now();
+  parent.postMessage({ type: 'followGrab' }, '*');
+}
+
+// New moves from the video. On the board if the person is watching the live position; otherwise added after the
+// moves they are looking at, so → reaches them.
+function playLive(moves, weak = null) {
+  if (!moves.length) return;
+  const showing = atLive();
+  if (showing) {
+    let fen = curFen, lm = lastMove;
+    for (const m of moves) { history.push({ fen, lastMove: lm }); fen = m.fen; lm = { from: m.from, to: m.to }; }
+    future = [];
+    $('turn').value = 'auto';
+    setPosition(fen, 'video: ' + moves.map((m) => m.san).join(' '), { lastMove: lm, scanWeak: weak && weak.size ? weak : null });
+  } else {
+    for (const m of moves) future.unshift({ fen: m.fen, lastMove: { from: m.from, to: m.to } });
+    setStatus(`Video: ${moves.map((m) => m.san).join(' ')}. Press → to catch up.`);
+  }
+  const last = moves[moves.length - 1];
+  track.live = showing ? curFen : last.fen;
+  track.liveLast = { from: last.from, to: last.to };
+  track.recent = track.recent.concat(moves.map((m) => ({ from: m.from, to: m.to }))).slice(-2);
+}
+
+// A position that is not a few moves on from the last one (the video cut to another game, or jumped).
+function jumpLive(fen, weak) {
+  if (atLive()) {
+    if (curFen) history.push({ fen: curFen, lastMove });
+    future = [];
+    $('turn').value = 'auto';
+    flipped = track.black;
+    setPosition(fen, 'from the video', { scanWeak: weak && weak.size ? weak : null });
+    track.live = curFen;
+  } else {
+    track.live = fen;
+  }
+  track.liveLast = null;
+  track.recent = [];
+}
 
 function videoBoardOf(out) {
   const r = out && out.result;
@@ -776,14 +858,16 @@ function videoBoardOf(out) {
 }
 
 let videoBoard = null; // where the board was in the last video frame read, as fractions of the frame
+let shotFrame = null; // the size of the video frame `lastShot` is, when it is one (Select board… then follows that area)
 function rememberVideoBoard(out) {
   videoBoard = videoBoardOf(out);
-  if (follow.mode === 'video' && videoBoard) parent.postMessage({ type: 'followStart', board: videoBoard }, '*');
+  if (follow.mode === 'video' && videoBoard) { resetPicture(); parent.postMessage({ type: 'followStart', board: videoBoard }, '*'); }
 }
 
 async function startVideoFollow() {
   follow.mode = 'video'; // first, so reading the first position does not switch Follow off again
   follow.fails = 0;
+  resetTrack();
   if (!videoBoard) {
     setBusy(true, 'Finding the board…');
     const out = await readVideo();
@@ -791,7 +875,10 @@ async function startVideoFollow() {
     if (!$('auto').checked || follow.mode !== 'video') return;
     if (!out || !out.ok || out.result.pieces < 3) {
       stopFollowing();
-      showNote({ kind: 'err', text: 'No chess board found in the video right now. Pause on a board and try again.' });
+      if (out && out.blob) { lastShot = out.blob; shotFrame = out.frameSize || null; }
+      // a small board inside a busy picture (a tournament broadcast) is easier to find when it is pointed out
+      const actions = lastShot && shotFrame ? [{ label: 'Select board…', run: openCrop }] : [];
+      showNote({ kind: 'err', text: 'No chess board found in the video right now. Pause on a board and try again, or select it.', actions });
       return;
     }
     videoBoard = videoBoardOf(out);
@@ -799,51 +886,129 @@ async function startVideoFollow() {
     if (!videoBoard) { stopFollowing(); return; }
   }
   follow.board = videoBoard;
+  track.live = curFen;
+  track.black = flipped;
   parent.postMessage({ type: 'followStart', board: videoBoard }, '*');
   setStatus('Following the video. Moves on the board update by themselves; ← and → step through them.');
 }
 
+// A thumbnail of the board after it changed: find the move from it, or ask for a sharp picture.
+function onFollowTiles(d) {
+  if (follow.mode !== 'video' || !d.px || busy || page.locked || editor.isOpen() || cropSheet.isOpen()) return;
+  if (track.reading) { track.pending = d; return; } // looked at once the sharp picture is read
+  const fen = liveFen();
+  if (!track.ref || !track.box || !sameSpot(track.refFen, fen)) { askFrame(); return; }
+  let r;
+  try {
+    r = fastMove({ ref: track.ref, now: d.px, size: d.size || REGION, box: track.box, fen, black: !!track.black, lastMove: track.liveLast });
+  } catch (e) { r = { unsure: String((e && e.message) || e) }; }
+  if (r.none) return;
+  if (!r.moves) { askFrame(); return; }
+  follow.fails = 0;
+  playLive(r.moves);
+  track.ref = d.px;
+  track.refFen = liveFen();
+  track.unverified += r.moves.length;
+  // Check with the reader in the next quiet moment, or after a run of quick moves. While the checks keep agreeing,
+  // check less often (1.5 s, 3 s, then 6 s of quiet; every 6, 9, then 12 moves): less work for a slow computer.
+  clearTimeout(track.timer);
+  const t = Math.min(track.trust, 2);
+  if (track.unverified >= 6 + 3 * t) askFrame();
+  else track.timer = setTimeout(() => { if (track.unverified && follow.mode === 'video') askFrame(); }, 1500 * 2 ** t);
+}
+
 async function onFollowFrame(d) {
-  const done = (interval) => parent.postMessage({ type: 'followDone', interval }, '*');
+  track.asked = 0;
+  const done = (gap = 0) => parent.postMessage({ type: 'followDone', gap }, '*');
   if (follow.mode !== 'video' || busy || page.locked || editor.isOpen() || cropSheet.isOpen() || !d.blob) { done(); return; }
+  track.reading = true;
   const t0 = Date.now();
   const size = d.size || [1, 1];
   const box = Array.isArray(d.box) ? [d.box[0] * size[0], d.box[1] * size[1], d.box[2] * size[0], d.box[3] * size[1]] : null;
   const out = await flow.scanBlob(d.blob, null, 'video', box ? { box } : {});
-  // a weak device gets more time between reads
-  done(Math.max(700, Math.min(4000, 2 * (Date.now() - t0))));
-  if (follow.mode !== 'video' || out.kind === 'cancelled') return;
-  followResult(out);
+  // a slow computer rests a little between reads (half as long as a read took)
+  done(Math.min(2000, Math.round((Date.now() - t0) / 2)));
+  track.reading = false;
+  if (follow.mode === 'video' && out.kind !== 'cancelled') followResult(out, d);
+  const p = track.pending;
+  track.pending = null;
+  if (p && follow.mode === 'video') onFollowTiles(p);
 }
 
-function followResult(out) {
+// What the neural reader saw in a sharp picture of the board area.
+function followResult(out, d = null) {
   const res = out.ok && out.result;
   if (!res || res.pieces < 3 || res.confidence < 0.5) { followMiss(); return; }
   // keep the way up the board already has unless the picture is sure
-  const black = res.orientationUnsure ? flipped : res.bottom === 'black';
+  const black = res.orientationUnsure ? (track.black == null ? flipped : track.black) : res.bottom === 'black';
   const grid = black ? rotateGrid(res.grid) : res.grid;
   const weak = weakSquares(res, black);
   const placement = gridToPlacement(grid);
-  if (curFen && placement === curFen.split(' ')[0]) { follow.fails = 0; return; } // a highlight or arrow changed, not the position
-  const mv = curFen && findMove(curFen, placement);
-  if (mv) {
-    follow.fails = 0;
-    history.push({ fen: curFen, lastMove });
-    future = [];
-    flipped = black;
-    $('turn').value = 'auto';
-    setPosition(mv.fen, 'video: ' + mv.san, { lastMove: { from: mv.from, to: mv.to }, scanWeak: weak.size ? weak : null });
+  follow.fails = 0;
+  track.black = black;
+  // From now on, thumbnails are compared with this picture's, on a grid lined up with the board exactly.
+  const settle = () => {
+    track.unverified = 0;
+    clearTimeout(track.timer);
+    if (!d || !d.px) return;
+    const n = d.pxSize || REGION;
+    const b = Array.isArray(d.box) ? d.box : [0.05, 0.05, 0.95, 0.95];
+    const guess = { x: b[0] * n, y: b[1] * n, w: (b[2] - b[0]) * n, h: (b[3] - b[1]) * n };
+    try { track.box = alignBoard(d.px, n, placement, black, guess); } catch (e) { track.box = guess; }
+    track.ref = d.px;
+    track.refFen = liveFen();
+    track.size = n;
+    // the page cuts its sharp pictures for the reader with the same, better box
+    const moved = Math.max(Math.abs(track.box.x - guess.x), Math.abs(track.box.y - guess.y), Math.abs(track.box.w - guess.w));
+    if (moved > 1.5) {
+      const f = [track.box.x / n, track.box.y / n, (track.box.x + track.box.w) / n, (track.box.y + track.box.h) / n];
+      parent.postMessage({ type: 'followBox', box: f }, '*');
+    }
+  };
+  const fen = liveFen();
+  if (fen && placement === fen.split(' ')[0]) { // the quick look was right (or only a highlight or an arrow changed)
+    if (track.unverified) track.trust++;
+    settle();
     return;
   }
-  // not one move away: the video jumped, or a misread. Only take it if it is a real position and fairly sure.
+  if (track.unverified) track.trust = 0; // the quick look got something wrong: check it more often again
+  // Moves the quick look found but the reader does not confirm: take them back and work out the line again.
+  let base = fen;
+  if (track.unverified && atLive() && history.length >= track.unverified) {
+    const back = history.splice(history.length - track.unverified);
+    future = [];
+    setPosition(back[0].fen, 'video: corrected', { lastMove: back[0].lastMove });
+    base = curFen;
+    track.live = curFen;
+    track.liveLast = back[0].lastMove;
+    track.recent = [];
+  }
+  const line = base && findLine(base, placement, { maxPly: 4, prior: track.recent });
+  if (line) {
+    if (atLive()) flipped = black;
+    playLive(line.moves, weak);
+    settle();
+    return;
+  }
+  // back to a position of a few moves ago: the presenter stepping back through the moves, or a takeback
+  if (atLive()) {
+    const k = [...history].reverse().slice(0, 12).findIndex((h) => h.fen.split(' ')[0] === placement);
+    if (k >= 0) {
+      for (let i = 0; i <= k; i++) { future.push({ fen: curFen, lastMove }); const h = history.pop(); curFen = h.fen; lastMove = h.lastMove; }
+      const fenNow = curFen;
+      setPosition(fenNow, 'video: back', { lastMove });
+      track.live = curFen;
+      track.liveLast = lastMove;
+      track.recent = [];
+      settle();
+      return;
+    }
+  }
+  // not a few moves away: the video jumped, or a misread. Only take it if it is a real position and fairly sure.
   const turn = guessTurn(grid);
   if (checkPosition(grid, turn) || weak.size > 3) { followMiss(); return; }
-  follow.fails = 0;
-  if (curFen) history.push({ fen: curFen, lastMove });
-  future = [];
-  flipped = black;
-  $('turn').value = 'auto';
-  setPosition(fenFrom({ grid, turn, castle: homeCastling(grid) }), 'from the video', { scanWeak: weak.size ? weak : null });
+  jumpLive(fenFrom({ grid, turn, castle: homeCastling(grid) }), weak);
+  settle();
 }
 
 // The board area no longer reads well: after a few misses look for the board in the whole frame again.
@@ -856,7 +1021,7 @@ async function followMiss() {
     if (follow.mode !== 'video') return;
     if (out && out.ok && out.result.pieces >= 3) {
       const b = videoBoardOf(out);
-      if (b) { videoBoard = b; follow.board = b; parent.postMessage({ type: 'followStart', board: b }, '*'); }
+      if (b) { videoBoard = b; follow.board = b; resetPicture(); parent.postMessage({ type: 'followStart', board: b }, '*'); }
       follow.fails = 0;
       followResult(out);
       return;
@@ -877,6 +1042,36 @@ function stopVideoFollow() {
   if (follow.mode === 'video') parent.postMessage({ type: 'followStop' }, '*');
   follow.mode = null;
   follow.fails = 0;
+  resetTrack();
+  clearInterval(followClock);
+  followClock = null;
+}
+
+// The free plan follows videos for FREE_LIMITS.followMinutes a day (counted only while the panel is on screen).
+let followClock = null;
+async function startFreeFollow() {
+  if (premium) { startVideoFollow(); return; }
+  followMs = await followLeft(false);
+  updatePlanText();
+  if (followMs <= 0) { $('auto').checked = false; openUpsell('followTime'); return; }
+  if (!$('auto').checked) return;
+  await startVideoFollow();
+  if (follow.mode !== 'video') return;
+  setStatus(`Following the video. Free plan: ${Math.ceil(followMs / 60000)} min of Follow left today.`);
+  let tick = Date.now();
+  clearInterval(followClock);
+  followClock = setInterval(async () => {
+    const now = Date.now(), ms = now - tick;
+    tick = now;
+    if (follow.mode !== 'video' || premium) { clearInterval(followClock); followClock = null; return; }
+    if (!shown || document.hidden) return;
+    followMs = await useFollow(false, ms);
+    updatePlanText();
+    if (followMs <= 0) {
+      stopFollowing();
+      openUpsell('followTime');
+    }
+  }, 5000);
 }
 
 $('auto').onchange = () => {
@@ -891,8 +1086,7 @@ $('auto').onchange = () => {
     askSnapshot(true);
     autoTimer = setInterval(() => { if (shown && !document.hidden) askSnapshot(true); }, 800);
   } else if (page.video) {
-    if (!limits.follow) { $('auto').checked = false; openUpsell('follow'); return; }
-    startVideoFollow();
+    startFreeFollow();
   } else {
     $('auto').checked = false;
     setStatus('Nothing to follow here. Follow works on chess.com and lichess boards, and on videos.');
@@ -942,7 +1136,8 @@ const cropSheet = createCropSheet({ $, onRead: (blob, crop) => readPicture(blob,
 
 const UPSELL_WHY = {
   scans: `You have used today's ${FREE_LIMITS.scansPerDay} free scans. They come back tomorrow, or go unlimited with Premium.`,
-  follow: 'Following a video move by move is part of Premium.',
+  follow: `Following a video move by move is Pawnshot Premium. The free plan includes ${FREE_LIMITS.followMinutes} minutes of it every day.`,
+  followTime: `That was today's ${FREE_LIMITS.followMinutes} free minutes of following a video. They come back tomorrow, or follow as long as you like with Premium. Snapshot keeps working.`,
   depth: `The free plan searches up to depth ${FREE_LIMITS.maxDepth} with ${FREE_LIMITS.maxLines} lines. Premium goes to depth 30 with 5 lines.`,
   info: 'Pawnshot is free to use. Premium lifts the limits and adds a few extras.',
 };
@@ -971,8 +1166,14 @@ function updatePlanText() {
     $('planBtn').hidden = true;
     return;
   }
-  t.textContent = left > 0 ? `Free · ${left} scan${left === 1 ? '' : 's'} left today` : 'Free · no scans left today';
-  t.className = left <= 2 ? 'low' : '';
+  if (Number.isFinite(left)) {
+    t.textContent = left > 0 ? `Free · ${left} scan${left === 1 ? '' : 's'} left today` : 'Free · no scans left today';
+    t.className = left <= 2 ? 'low' : '';
+  } else {
+    const min = Math.ceil(followMs / 60000);
+    t.textContent = followMs > 0 ? `Free · ${min} min of Follow video left today` : 'Free · Follow video used up today';
+    t.className = followMs <= 2 * 60000 ? 'low' : '';
+  }
   $('planBtn').hidden = false;
 }
 
@@ -990,9 +1191,11 @@ async function refreshPlan() {
   const was = premium;
   try { premium = await loadPremium(); } catch (e) { premium = false; }
   left = await scansLeft(premium);
+  followMs = await followLeft(premium);
   applyLimits();
   updatePlanText();
-  if (was && !premium && follow.mode === 'video') stopFollowing();
+  // losing Premium while following: carry on with the free minutes (if any are left today)
+  if (was && !premium && follow.mode === 'video') { stopFollowing(); if (followMs > 0) { $('auto').checked = true; $('auto').onchange(); } }
 }
 
 $('upsellClose').onclick = closeUpsell;
@@ -1093,4 +1296,4 @@ function reportHeight() {
 reportHeight();
 if (typeof ResizeObserver === 'function') new ResizeObserver(reportHeight).observe(document.body);
 
-window.__panel = { editor, cropSheet, flow, follow }; // for the offline tests; invisible to web pages (extension origin)
+window.__panel = { editor, cropSheet, flow, follow, track }; // for the offline tests; invisible to web pages (extension origin)

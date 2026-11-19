@@ -13,7 +13,7 @@ All of this is processed on your device by the built-in board reader and the Sto
 ## What Pawnshot stores
 In your browser's own extension storage (`chrome.storage.local`), on your device only:
 - your settings (panel style, board colours, compact view, search depth, number of lines);
-- on the free plan, how many picture scans you used today;
+- on the free plan, how many minutes of following a video you used today;
 - if you bought Premium, your license key and the result of its last check.
 
 Uninstalling the extension deletes all of it.

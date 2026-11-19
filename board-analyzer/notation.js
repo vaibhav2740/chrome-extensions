@@ -56,3 +56,106 @@ export function findMove(fen, placement) {
   }
   return null;
 }
+
+// A quick way to walk through legal moves. chess.js's public moves() also writes every move's name (SAN), which
+// needs a trial move per move for the check sign; a search through thousands of positions only needs the moves
+// themselves, so this uses the generator underneath (lib/chess.js is a pinned copy), with the public API as a
+// fallback. Squares are numbered 0..63 from a8 to h1 like a FEN placement; cell(i) is a FEN letter or '.'.
+const NAMES = Array.from({ length: 64 }, (_, i) => 'abcdefgh'[i & 7] + (8 - (i >> 3)));
+export function walker(fen) {
+  const g = new Chess(fen);
+  if (typeof g._moves === 'function' && typeof g._makeMove === 'function' && typeof g._undoMove === 'function' && Array.isArray(g._board)) {
+    const ox = (i) => (i >> 3) * 16 + (i & 7);
+    const name = (sq) => 'abcdefgh'[sq & 15] + (8 - (sq >> 4));
+    return {
+      moves: (i) => g._moves({ legal: true, square: i == null ? undefined : NAMES[i] }),
+      make: (m) => g._makeMove(m),
+      undo: () => g._undoMove(),
+      cell(i) {
+        const p = g._board[ox(i)];
+        return p ? (p.color === 'w' ? p.type.toUpperCase() : p.type) : '.';
+      },
+      plain: (m) => ({ from: name(m.from), to: name(m.to), promotion: m.promotion }),
+    };
+  }
+  let board = null;
+  const grid = () => board || (board = expand(g.fen().split(' ')[0]));
+  return {
+    moves: (i) => g.moves({ verbose: true, square: i == null ? undefined : NAMES[i] }),
+    make: (m) => { g.move(m); board = null; },
+    undo: () => { g.undo(); board = null; },
+    cell: (i) => grid()[i],
+    plain: (m) => ({ from: m.from, to: m.to, promotion: m.promotion }),
+  };
+}
+
+// Replays plain moves ({from, to, promotion}) from `fen` and names them. -> [{ san, from, to, fen }]
+export function nameMoves(fen, plain) {
+  const g = new Chess(fen);
+  return plain.map((p) => {
+    const m = g.move({ from: p.from, to: p.to, promotion: p.promotion });
+    return { san: m.san, from: m.from, to: m.to, fen: g.fen() };
+  });
+}
+
+// Up to `maxPly` legal moves in a row that turn `fen` into a position with these pieces (FEN placement), or null.
+// When moves come faster than the video can be read, one read can land two or three moves later; this finds the moves
+// in between so the move list stays complete. The shortest line wins. A line that only puts a piece back where it just
+// came from is not taken: that is someone stepping back through the moves, not a move.
+// prior: the moves just before `fen` ({from, to}, oldest first), to spot such steps back.
+// -> { fen, moves: [{ san, from, to, fen }] }
+export function findLine(fen, placement, { maxPly = 3, prior = [] } = {}) {
+  const goal = expand(placement);
+  const parts = fen.split(' ');
+  const other = [parts[0], parts[1] === 'w' ? 'b' : 'w', parts[2], '-', parts[4], parts[5]].join(' ');
+  for (let depth = 1; depth <= maxPly; depth++) {
+    // a wrong side to move is only a guess worth fixing for a single move
+    for (const start of depth === 1 ? [fen, other] : [fen]) {
+      let w;
+      try { w = walker(start); } catch (e) { continue; }
+      // for the other side, its own previous move is the last one played
+      const pri = start === fen ? prior : prior.concat([{ from: '', to: '' }]);
+      const budget = { left: 200000 }; // positions looked at, so a slow computer never stalls on a hopeless search
+      const hit = search(w, goal, depth, [], pri, budget);
+      if (hit) {
+        const moves = nameMoves(start, hit);
+        return { fen: moves[moves.length - 1].fen, moves };
+      }
+    }
+  }
+  return null;
+}
+
+function expand(placement) {
+  const out = [];
+  for (const ch of placement) {
+    if (ch === '/') continue;
+    if (ch >= '1' && ch <= '8') for (let i = 0; i < +ch; i++) out.push('.');
+    else out.push(ch);
+  }
+  return out;
+}
+
+function search(w, goal, left, line, prior, budget) {
+  if (--budget.left < 0) return null;
+  const diffs = [];
+  for (let i = 0; i < 64; i++) if (w.cell(i) !== goal[i]) diffs.push(i);
+  if (left === 0) return diffs.length === 0 ? line.slice() : null;
+  // one move changes two squares (three for en passant, four for castling)
+  if (diffs.length > 2 * left + 2) return null;
+  const seq = prior.concat(line);
+  const back = seq.length >= 2 ? seq[seq.length - 2] : null; // this side's previous move
+  // the last move has to start on one of the squares that are still wrong
+  const moves = left === 1 ? diffs.flatMap((i) => w.moves(i)) : w.moves();
+  for (const m of moves) {
+    const p = w.plain(m);
+    if (back && back.from === p.to && back.to === p.from) continue;
+    w.make(m);
+    line.push(p);
+    const hit = search(w, goal, left - 1, line, prior, budget);
+    line.pop();
+    w.undo();
+    if (hit) return hit;
+  }
+  return null;
+}

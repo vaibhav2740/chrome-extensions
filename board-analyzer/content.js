@@ -165,6 +165,9 @@
     let best = null, bestArea = 0;
     for (const v of document.querySelectorAll('video')) {
       if (!v.videoWidth || !v.videoHeight || v.readyState < 2) continue;
+      // A camera or a shared screen (a live MediaStream) is not a video someone published. Reading one could follow
+      // the reader's own game from another window, so Pawnshot leaves those alone.
+      if (typeof MediaStream === 'function' && v.srcObject instanceof MediaStream) continue;
       const r = v.getBoundingClientRect();
       const w = Math.min(r.right, innerWidth) - Math.max(r.left, 0);
       const h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
@@ -198,29 +201,42 @@
     });
   }
 
-  // A 32x32 grey thumbnail of the board area, to notice cheaply when the position in the video changes.
-  const SIG = 32;
-  let sigCanvas = null;
-  function signature(v, region) {
-    if (!sigCanvas) { sigCanvas = document.createElement('canvas'); sigCanvas.width = sigCanvas.height = SIG; }
-    const g = sigCanvas.getContext('2d', { willReadFrequently: true });
+  // ---------- Follow a video ----------
+  // Several times a second a small thumbnail of the board area (the board plus a margin, REGION px square) is taken
+  // from the video. Once it has changed and then held still (the move is over), it goes to the panel, which usually
+  // finds the move from it alone in about a millisecond. When it cannot, or now and then to make sure, the panel asks
+  // for a sharp picture of the area for the neural reader (followGrab). One sharp picture at a time; the panel says
+  // when it is done and how long the computer should rest before the next.
+  const REGION = 160;
+  const MOVED = 60; // thumbnail pixels that changed clearly: a piece moving changes a few hundred, video noise a few
+  const STILL = 40;
+  const slowDevice = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4;
+  const follow = {
+    board: null, region: null, box: null, timer: null, seq: 0, sent: null, prev: null, changedAt: 0,
+    want: false, wantAt: 0, inflight: 0, gap: 0, lastFrame: 0, cost: 0,
+  };
+
+  let thumbCanvas = null;
+  function thumbnail(v, region) {
+    if (!thumbCanvas) { thumbCanvas = document.createElement('canvas'); thumbCanvas.width = thumbCanvas.height = REGION; }
+    const g = thumbCanvas.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high'; // a smooth shrink, so every pixel stands for its whole patch of the board
     const { sx, sy, sw, sh } = videoRect(v, region);
-    g.drawImage(v, sx, sy, sw, sh, 0, 0, SIG, SIG);
-    const d = g.getImageData(0, 0, SIG, SIG).data; // throws on a tainted video
-    const out = new Uint8Array(SIG * SIG);
-    for (let i = 0; i < out.length; i++) out[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
-    return out;
+    g.drawImage(v, sx, sy, sw, sh, 0, 0, REGION, REGION);
+    const d = g.getImageData(0, 0, REGION, REGION).data; // throws on a tainted video
+    const rgb = new Uint8Array(REGION * REGION * 3);
+    for (let i = 0, j = 0; j < rgb.length; i += 4, j += 3) { rgb[j] = d[i]; rgb[j + 1] = d[i + 1]; rgb[j + 2] = d[i + 2]; }
+    return rgb;
   }
-  // Pixels that changed clearly. A moved piece changes a dozen or more; video noise only a few.
   function changed(a, b) {
     let n = 0;
-    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 28) n++;
+    for (let j = 0; j < a.length; j += 3) {
+      const d = (a[j] - b[j]) * 0.3 + (a[j + 1] - b[j + 1]) * 0.59 + (a[j + 2] - b[j + 2]) * 0.11;
+      if (d > 28 || d < -28) n++;
+    }
     return n;
   }
-
-  // Follow a video: watch the board area; once it has changed and then held still (the move's animation is over),
-  // send that area to the panel to read. One picture at a time; the panel says when it is done and how long to wait.
-  const follow = { board: null, region: null, box: null, timer: null, waiting: 0, sent: null, prev: null, interval: 900 };
 
   function expand(b, m) {
     const w = b[2] - b[0], h = b[3] - b[1];
@@ -235,48 +251,74 @@
     // where the board sits inside the region, as fractions of the region (the panel turns it into pixels)
     follow.box = [(board[0] - rx0) / (rx1 - rx0), (board[1] - ry0) / (ry1 - ry0), (board[2] - rx0) / (rx1 - rx0), (board[3] - ry0) / (ry1 - ry0)];
     const v = findVideo();
-    try { follow.sent = v ? signature(v, follow.region) : null; } catch (e) { follow.sent = null; }
+    try { follow.sent = v ? thumbnail(v, follow.region) : null; } catch (e) { follow.sent = null; }
     follow.prev = follow.sent;
-    schedule(follow.interval);
+    follow.want = true; // one sharp picture first, so the panel learns what this board looks like
+    follow.wantAt = Date.now();
+    schedule(0);
   }
 
   function stopFollow() {
     clearTimeout(follow.timer);
-    Object.assign(follow, { board: null, region: null, box: null, timer: null, waiting: 0, sent: null, prev: null });
+    Object.assign(follow, { board: null, region: null, box: null, timer: null, sent: null, prev: null, changedAt: 0, want: false, inflight: 0 });
   }
 
   function schedule(ms) { clearTimeout(follow.timer); follow.timer = setTimeout(tick, ms); }
 
+  // How long to wait before the next look: about 9 a second, less on a slow computer or when looking takes long,
+  // and slowly while a paused video shows nothing new.
+  function nextLook(v, still) {
+    let ms = slowDevice ? 180 : 110;
+    ms = Math.max(ms, follow.cost * 12);
+    if (still && v && v.paused) ms = Math.max(ms, 400);
+    return Math.min(1000, Math.round(ms));
+  }
+
+  async function sendFrame(v, px) {
+    follow.want = false;
+    follow.inflight = Date.now();
+    const g = await grabVideo(v, follow.region, 1024);
+    if (!follow.board) return;
+    if (!g.ok) {
+      follow.inflight = 0;
+      if (g.tainted) { stopFollow(); toPanel({ type: 'followError', error: g.error }); }
+      return;
+    }
+    // the thumbnail goes along: it is what the next thumbnails are compared with once this picture is read
+    toPanel({ type: 'followFrame', seq: follow.seq, blob: g.blob, size: g.size, box: follow.box, px, pxSize: REGION });
+  }
+
   async function tick() {
     follow.timer = null;
     if (!follow.board) return;
-    if (follow.waiting && Date.now() - follow.waiting > 15000) follow.waiting = 0; // the panel never answered
+    if (follow.inflight && Date.now() - follow.inflight > 15000) follow.inflight = 0; // the panel never answered
     const v = findVideo();
-    if (!v || follow.waiting || document.hidden || host.style.display === 'none' || fairPlay().locked) {
-      schedule(follow.interval);
-      return;
-    }
-    let sig;
-    try { sig = signature(v, follow.region); } catch (e) {
+    if (!v || document.hidden || host.style.display === 'none' || fairPlay().locked) { schedule(500); return; }
+    const t0 = performance.now();
+    let px;
+    try { px = thumbnail(v, follow.region); } catch (e) {
       stopFollow();
       toPanel({ type: 'followError', error: TAINTED });
       return;
     }
-    const still = follow.prev && changed(sig, follow.prev) <= 3;
-    const moved = !follow.sent || changed(sig, follow.sent) >= 6;
-    follow.prev = sig;
-    if (still && moved) {
-      follow.waiting = Date.now();
-      follow.sent = sig;
-      const g = await grabVideo(v, follow.region, 1024);
-      if (!follow.board) return;
-      if (!g.ok) { follow.waiting = 0; if (g.tainted) { stopFollow(); toPanel({ type: 'followError', error: g.error }); return; } }
-      else toPanel({ type: 'followFrame', blob: g.blob, size: g.size, box: follow.box });
+    follow.cost = follow.cost * 0.8 + (performance.now() - t0) * 0.2;
+    const still = !!follow.prev && changed(px, follow.prev) <= STILL;
+    follow.prev = px;
+    const moved = !follow.sent || changed(px, follow.sent) >= MOVED;
+    if (moved && !follow.changedAt) follow.changedAt = Date.now();
+    // the move is over: send what the board shows now (a picture that never settles goes after a second anyway)
+    if (moved && (still || Date.now() - follow.changedAt > 1000)) {
+      follow.sent = px;
+      follow.changedAt = 0;
+      toPanel({ type: 'followTiles', seq: ++follow.seq, px, size: REGION });
     }
-    schedule(follow.interval);
+    // a sharp picture is taken when the board is still (a busy picture that never settles: after 1.5 s anyway)
+    const ready = still || Date.now() - follow.wantAt > 1500;
+    if (follow.want && ready && !follow.inflight && Date.now() - follow.lastFrame >= follow.gap) await sendFrame(v, px);
+    if (follow.board && !follow.timer) schedule(nextLook(v, still));
   }
 
-  const onSeek = () => { if (follow.board && !follow.waiting) schedule(120); };
+  const onSeek = () => { if (follow.board) { follow.want = true; follow.wantAt = Date.now(); schedule(60); } };
   document.addEventListener('seeked', onSeek, true);
 
   // ---------- panel UI ----------
@@ -536,10 +578,15 @@
       if (!fairPlay().locked && Array.isArray(d.board) && d.board.length === 4) startFollow(d.board.map(Number));
     } else if (d.type === 'followStop') {
       stopFollow();
+    } else if (d.type === 'followGrab') {
+      if (follow.board) { if (!follow.want) follow.wantAt = Date.now(); follow.want = true; if (!follow.timer) schedule(0); }
     } else if (d.type === 'followDone') {
-      follow.waiting = 0;
-      if (d.interval) follow.interval = Math.max(600, Math.min(5000, +d.interval || 900));
-      if (follow.board) schedule(follow.interval);
+      follow.inflight = 0;
+      follow.lastFrame = Date.now();
+      follow.gap = Math.max(0, Math.min(3000, +d.gap || 0));
+    } else if (d.type === 'followBox') {
+      // the panel lined its grid up with the board: cut the sharp pictures for the reader the same way
+      if (follow.board && Array.isArray(d.box) && d.box.length === 4 && d.box.every((x) => Number.isFinite(+x))) follow.box = d.box.map(Number);
     } else if (d.type === 'summary') {
       summary = String(d.text || '').slice(0, 40);
       if (minimized) applyShell();

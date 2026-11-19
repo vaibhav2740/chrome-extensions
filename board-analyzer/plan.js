@@ -1,9 +1,11 @@
-// Free vs Premium: what each plan allows, and the daily allowance of picture scans on the free plan.
-// Everything Pawnshot does runs on the device; Premium only lifts limits and adds conveniences.
+// Free vs Premium: what each plan allows, and the daily allowances of the free plan.
+// Everything Pawnshot does runs on the device, so a scan costs nothing to give away: picture scans are unlimited on
+// both plans (other scanners offer that too). What Premium sells is what only Pawnshot does: following a video move
+// by move. The free plan gets a taste of it every day (followMinutes).
 import { isPremium, isUnpacked, loadLicense } from './license.js';
 
-export const FREE_LIMITS = { scansPerDay: 10, maxDepth: 20, maxLines: 3, follow: false };
-export const PREMIUM_LIMITS = { scansPerDay: Infinity, maxDepth: 30, maxLines: 5, follow: true };
+export const FREE_LIMITS = { scansPerDay: Infinity, followMinutes: 10, maxDepth: 20, maxLines: 3 };
+export const PREMIUM_LIMITS = { scansPerDay: Infinity, followMinutes: Infinity, maxDepth: 30, maxLines: 5 };
 
 // Board colours. The first two are free.
 export const THEMES = {
@@ -22,29 +24,43 @@ export async function loadPremium() {
   return isPremium(await loadLicense(), { unpacked: isUnpacked() });
 }
 
-// ---------- daily scan allowance (free plan) ----------
+// ---------- daily allowances (free plan): picture scans (unlimited for now) and minutes of Follow on a video ----------
 const today = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const local = () => (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) || null;
-let memory = { day: today(), used: 0 }; // when there is no extension storage (tests, plain pages)
+const memory = {}; // when there is no extension storage (tests, plain pages)
 
-async function readQuota() {
-  let q = memory;
-  try { const s = local(); if (s) q = (await s.get('scanQuota')).scanQuota || q; } catch (e) { /* use memory */ }
+async function readQuota(key) {
+  let q = memory[key];
+  try { const s = local(); if (s) q = (await s.get(key))[key] || q; } catch (e) { /* use memory */ }
   return q && q.day === today() ? q : { day: today(), used: 0 };
+}
+async function addQuota(key, n) {
+  const q = await readQuota(key);
+  const next = { day: q.day, used: q.used + n };
+  memory[key] = next;
+  try { const s = local(); if (s) await s.set({ [key]: next }); } catch (e) { /* kept in memory */ }
+  return next.used;
 }
 
 export async function scansLeft(premium) {
-  if (premium) return Infinity;
-  const q = await readQuota();
-  return Math.max(0, FREE_LIMITS.scansPerDay - q.used);
+  if (premium || !Number.isFinite(FREE_LIMITS.scansPerDay)) return Infinity;
+  return Math.max(0, FREE_LIMITS.scansPerDay - (await readQuota('scanQuota')).used);
 }
 
 // Count one scan that found a board. Returns what is left.
 export async function useScan(premium) {
-  if (premium) return Infinity;
-  const q = await readQuota();
-  const next = { day: q.day, used: q.used + 1 };
-  memory = next;
-  try { const s = local(); if (s) await s.set({ scanQuota: next }); } catch (e) { /* kept in memory */ }
-  return Math.max(0, FREE_LIMITS.scansPerDay - next.used);
+  if (premium || !Number.isFinite(FREE_LIMITS.scansPerDay)) return Infinity;
+  return Math.max(0, FREE_LIMITS.scansPerDay - (await addQuota('scanQuota', 1)));
+}
+
+// Milliseconds of Follow on a video left today.
+export async function followLeft(premium) {
+  if (premium || !Number.isFinite(FREE_LIMITS.followMinutes)) return Infinity;
+  return Math.max(0, FREE_LIMITS.followMinutes * 60000 - (await readQuota('followQuota')).used);
+}
+
+// Count `ms` of following. Returns what is left.
+export async function useFollow(premium, ms) {
+  if (premium || !Number.isFinite(FREE_LIMITS.followMinutes)) return Infinity;
+  return Math.max(0, FREE_LIMITS.followMinutes * 60000 - (await addQuota('followQuota', Math.max(0, Math.round(ms)))));
 }
