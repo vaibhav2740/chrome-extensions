@@ -9,10 +9,10 @@
 //   gumroad.productId: the product's ID from Gumroad (Product > Content > License key section).
 //   maxActivations: how many browsers one key may unlock (Lemon Squeezy enforces its own limit too).
 export const PREMIUM_CONFIG = {
-  provider: 'none',
-  checkoutUrl: '',
-  priceLabel: '',
+  provider: 'gumroad',
+  checkoutUrl: 'https://vaibhavster44.gumroad.com/l/pawnshot',
+  priceLabel: '$6.99 one-time',
   lemonsqueezy: { storeId: 0, productIds: [] },
-  gumroad: { productId: '' },
+  gumroad: { productId: 'QnTcndUyx5hiccdz79Ny2A==' },
   maxActivations: 3,
 };
