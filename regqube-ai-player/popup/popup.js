@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const showHudInput = $("showHud");
   const humanTypingInput = $("humanTyping");
   const typingWpmInput = $("typingWpm");
+  const wpmRow = $("wpmRow");
   const wpmValueSpan = $("wpmValue");
   const wpmHintSpan = $("wpmHint");
   const thinkingDelayInput = $("thinkingDelay");
@@ -42,6 +43,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   autoPlayInput.checked = settings.autoWrite !== undefined ? !!settings.autoWrite : !!settings.autoPlay;
   showHudInput.checked = settings.showHud !== undefined ? !!settings.showHud : true;
   humanTypingInput.checked = !!settings.humanTyping;
+  const updateWpmVisibility = () => {
+    if (wpmRow) wpmRow.style.display = humanTypingInput.checked ? "flex" : "none";
+  };
+  updateWpmVisibility();
+  humanTypingInput.addEventListener("change", updateWpmVisibility);
   if (settings.typingWpm !== undefined) typingWpmInput.value = settings.typingWpm;
   const updateWpmLabel = (w) => {
     const n = parseInt(w, 10) || 100;

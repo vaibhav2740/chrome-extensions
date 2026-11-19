@@ -1414,7 +1414,7 @@
     hud = document.createElement("div");
     hud.id = HUD_ID;
     hud.innerHTML = `
-      <div class="ai-hud-header" id="ai-hud-drag-handle">
+      <div class="ai-hud-header" id="ai-hud-drag-handle" title="Drag to move · double-click to minimize">
         <div class="ai-hud-title-wrap">
           <span class="ai-hud-dot" id="ai-hud-dot" data-state="idle"></span>
           <span class="ai-hud-title" title="Krillion Bot v${VERSION}">Krillion Bot</span>
@@ -1581,12 +1581,23 @@
     });
 
     const minBtn = q("ai-hud-min-btn");
+    const ICON_MIN = `<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7.2" width="10" height="1.6" rx="0.8"/></svg>`;
+    const ICON_RESTORE = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.2 3h1.6v4.2H13v1.6H8.8V13H7.2V8.8H3V7.2h4.2z"/></svg>`;
     minBtn.addEventListener("click", () => {
       const isMin = hud.classList.toggle("minimized");
+      minBtn.innerHTML = isMin ? ICON_RESTORE : ICON_MIN;
       minBtn.title = isMin ? "Restore" : "Minimize";
       minBtn.setAttribute("aria-label", minBtn.title);
       minBtn.setAttribute("aria-pressed", String(isMin));
     });
+
+    const handle = hud.querySelector("#ai-hud-drag-handle");
+    if (handle) {
+      handle.addEventListener("dblclick", (e) => {
+        if (e.target.closest("button") || e.target.closest("input")) return;
+        minBtn.click();
+      });
+    }
 
     q("ai-hud-close-btn").addEventListener("click", () => {
       hud.style.display = "none";
