@@ -37,3 +37,22 @@ export function scoreClass(l) {
   const v = l.mate != null ? l.mate : l.cp;
   return v > 0 ? 'pos' : v < 0 ? 'neg' : '';
 }
+
+// The one legal move that turns `fen` into a position with these pieces (FEN placement), by either side, or null.
+// Following a video, this tells who moved, so the side to move, castling and en passant stay right move after move.
+export function findMove(fen, placement) {
+  const parts = fen.split(' ');
+  for (const color of [parts[1], parts[1] === 'w' ? 'b' : 'w']) {
+    let g;
+    try { g = new Chess(color === parts[1] ? fen : [parts[0], color, parts[2], '-', parts[4], parts[5]].join(' ')); } catch (e) { continue; }
+    for (const m of g.moves({ verbose: true })) {
+      g.move(m);
+      if (g.fen().split(' ')[0] === placement) {
+        const after = g.fen();
+        return { fen: after, san: m.san, from: m.from, to: m.to };
+      }
+      g.undo();
+    }
+  }
+  return null;
+}

@@ -3,6 +3,17 @@
     window.__pawnshot.toggle();
     return;
   }
+  // A panel left on the page by an earlier copy of the extension (it was reloaded or updated) is dead: remove it.
+  for (const old of document.querySelectorAll('[data-pawnshot-host]')) old.remove();
+
+  // ---------- fair play ----------
+  // fairplay.js is injected just before this file. Without it, chess sites stay locked (fail closed).
+  function fairPlay() {
+    const fp = globalThis.__pawnshotFairPlay;
+    if (fp) return fp.check(location, document);
+    const chessSite = /(^|\.)(chess\.com|chesskid\.com|lichess\.org)$/i.test(location.hostname);
+    return { site: null, locked: chessSite, kind: chessSite ? 'game' : null, reason: chessSite ? 'Pawnshot could not check this page for a live game, so it stays off here.' : '' };
+  }
 
   // ---------- position reading ----------
 
@@ -43,7 +54,7 @@
         if (m && colorAt[m[1]]) { justMoved = colorAt[m[1]]; }
       }
     }
-    return { grid, justMoved, src: 'chess.com board DOM' };
+    return { grid, justMoved, src: 'chess.com board' };
   }
 
   function readLichess() {
@@ -81,8 +92,10 @@
       const letter = p && grid[p[1]][p[0]];
       if (letter) justMoved = letter === letter.toUpperCase() ? 'w' : 'b';
     }
-    return { grid, justMoved, src: 'lichess board DOM' };
+    return { grid, justMoved, src: 'lichess board' };
   }
+
+  const hasBoard = () => !!document.querySelector('wc-chess-board, chess-board, cg-board');
 
   function gridToFen(read) {
     const { grid, justMoved } = read;
@@ -121,9 +134,14 @@
     });
   }
 
-  async function snapshot() {
+  // Follow asks several times a second. The page's own game object is read through the background (a round trip),
+  // so only do that when the pieces on screen have changed; otherwise the last answer is still right.
+  let lastRead = null; // { domFen, result }
+  async function snapshot(auto) {
     const dom = readChessCom() || readLichess();
     const domFen = dom ? gridToFen(dom) : null;
+    if (auto && lastRead && lastRead.domFen === domFen) return lastRead.result;
+    let result = null;
     const main = await mainFen();
     if (main && main.fen) {
       const f = main.fen.trim().split(/\s+/);
@@ -131,11 +149,135 @@
       const full = f.join(' ');
       // Prefer the displayed board (DOM) for piece placement; use the game object for
       // turn/castling/en-passant only when it agrees with what is on screen.
-      if (!domFen || placement(full) === placement(domFen)) return { fen: full, src: main.src };
+      if (!domFen || placement(full) === placement(domFen)) result = { fen: full, src: main.src };
     }
-    if (domFen) return { fen: domFen, src: dom.src + ' (turn/castling guessed)' };
-    return { fen: null, src: 'no board found on this page' };
+    if (!result) result = domFen ? { fen: domFen, src: dom.src + ' (turn/castling guessed)' } : { fen: null, src: 'no board found on this page' };
+    lastRead = { domFen, result };
+    return result;
   }
+
+  // ---------- videos (YouTube and other players) ----------
+  // A frame straight from the <video> element is sharper than a screenshot, has no player buttons or captions on it,
+  // needs no screenshot permission and does not make the panel blink. Some sites forbid reading their video
+  // ("tainted" canvas); then the panel falls back to a screenshot.
+
+  function findVideo() {
+    let best = null, bestArea = 0;
+    for (const v of document.querySelectorAll('video')) {
+      if (!v.videoWidth || !v.videoHeight || v.readyState < 2) continue;
+      const r = v.getBoundingClientRect();
+      const w = Math.min(r.right, innerWidth) - Math.max(r.left, 0);
+      const h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+      if (w < 200 || h < 150) continue; // thumbnails and previews
+      if (w * h > bestArea) { best = v; bestArea = w * h; }
+    }
+    return best;
+  }
+
+  // region: [x0, y0, x1, y1] as fractions of the video picture, or null for all of it.
+  function videoRect(v, region) {
+    const W = v.videoWidth, H = v.videoHeight;
+    const [x0, y0, x1, y1] = region || [0, 0, 1, 1];
+    return { sx: x0 * W, sy: y0 * H, sw: Math.max(1, (x1 - x0) * W), sh: Math.max(1, (y1 - y0) * H) };
+  }
+
+  const TAINTED = 'This video does not let other programs read its picture.';
+  function grabVideo(v, region, maxEdge) {
+    const { sx, sy, sw, sh } = videoRect(v, region);
+    const scale = Math.min(1, maxEdge / Math.max(sw, sh));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(sw * scale));
+    c.height = Math.max(1, Math.round(sh * scale));
+    return new Promise((resolve) => {
+      try {
+        c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        c.toBlob((b) => resolve(b ? { ok: true, blob: b, size: [c.width, c.height] } : { ok: false, error: 'Could not read the video picture.' }), 'image/jpeg', 0.92);
+      } catch (e) {
+        resolve({ ok: false, tainted: true, error: TAINTED });
+      }
+    });
+  }
+
+  // A 32x32 grey thumbnail of the board area, to notice cheaply when the position in the video changes.
+  const SIG = 32;
+  let sigCanvas = null;
+  function signature(v, region) {
+    if (!sigCanvas) { sigCanvas = document.createElement('canvas'); sigCanvas.width = sigCanvas.height = SIG; }
+    const g = sigCanvas.getContext('2d', { willReadFrequently: true });
+    const { sx, sy, sw, sh } = videoRect(v, region);
+    g.drawImage(v, sx, sy, sw, sh, 0, 0, SIG, SIG);
+    const d = g.getImageData(0, 0, SIG, SIG).data; // throws on a tainted video
+    const out = new Uint8Array(SIG * SIG);
+    for (let i = 0; i < out.length; i++) out[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
+    return out;
+  }
+  // Pixels that changed clearly. A moved piece changes a dozen or more; video noise only a few.
+  function changed(a, b) {
+    let n = 0;
+    for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 28) n++;
+    return n;
+  }
+
+  // Follow a video: watch the board area; once it has changed and then held still (the move's animation is over),
+  // send that area to the panel to read. One picture at a time; the panel says when it is done and how long to wait.
+  const follow = { board: null, region: null, box: null, timer: null, waiting: 0, sent: null, prev: null, interval: 900 };
+
+  function expand(b, m) {
+    const w = b[2] - b[0], h = b[3] - b[1];
+    return [Math.max(0, b[0] - w * m), Math.max(0, b[1] - h * m), Math.min(1, b[2] + w * m), Math.min(1, b[3] + h * m)];
+  }
+
+  function startFollow(board) {
+    stopFollow();
+    follow.board = board;
+    follow.region = expand(board, 0.06);
+    const [rx0, ry0, rx1, ry1] = follow.region;
+    // where the board sits inside the region, as fractions of the region (the panel turns it into pixels)
+    follow.box = [(board[0] - rx0) / (rx1 - rx0), (board[1] - ry0) / (ry1 - ry0), (board[2] - rx0) / (rx1 - rx0), (board[3] - ry0) / (ry1 - ry0)];
+    const v = findVideo();
+    try { follow.sent = v ? signature(v, follow.region) : null; } catch (e) { follow.sent = null; }
+    follow.prev = follow.sent;
+    schedule(follow.interval);
+  }
+
+  function stopFollow() {
+    clearTimeout(follow.timer);
+    Object.assign(follow, { board: null, region: null, box: null, timer: null, waiting: 0, sent: null, prev: null });
+  }
+
+  function schedule(ms) { clearTimeout(follow.timer); follow.timer = setTimeout(tick, ms); }
+
+  async function tick() {
+    follow.timer = null;
+    if (!follow.board) return;
+    if (follow.waiting && Date.now() - follow.waiting > 15000) follow.waiting = 0; // the panel never answered
+    const v = findVideo();
+    if (!v || follow.waiting || document.hidden || host.style.display === 'none' || fairPlay().locked) {
+      schedule(follow.interval);
+      return;
+    }
+    let sig;
+    try { sig = signature(v, follow.region); } catch (e) {
+      stopFollow();
+      toPanel({ type: 'followError', error: TAINTED });
+      return;
+    }
+    const still = follow.prev && changed(sig, follow.prev) <= 3;
+    const moved = !follow.sent || changed(sig, follow.sent) >= 6;
+    follow.prev = sig;
+    if (still && moved) {
+      follow.waiting = Date.now();
+      follow.sent = sig;
+      const g = await grabVideo(v, follow.region, 1024);
+      if (!follow.board) return;
+      if (!g.ok) { follow.waiting = 0; if (g.tainted) { stopFollow(); toPanel({ type: 'followError', error: g.error }); return; } }
+      else toPanel({ type: 'followFrame', blob: g.blob, size: g.size, box: follow.box });
+    }
+    schedule(follow.interval);
+  }
+
+  const onSeek = () => { if (follow.board && !follow.waiting) schedule(120); };
+  document.addEventListener('seeked', onSeek, true);
 
   // ---------- panel UI ----------
 
@@ -143,6 +285,7 @@
   // The whole shell lives in a shadow root and the host starts from `all: initial`, so the page's own CSS (an `img`
   // margin, a `div` transition, a `* { box-sizing }`...) cannot reach it and it looks the same on every site.
   const host = document.createElement('div');
+  host.setAttribute('data-pawnshot-host', '');
   host.style.cssText = 'all:initial;display:block;position:fixed;top:24px;right:16px;z-index:2147483647;box-sizing:border-box;overflow:hidden;' +
     'font:12px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;' +
     'border:1px solid rgba(255,255,255,.16);';
@@ -159,7 +302,7 @@
   logo.style.cssText = 'width:24px;height:24px;display:block;flex:none;margin:0;padding:0;border:0;max-width:none;filter:drop-shadow(0 2px 5px rgba(0,0,0,.35));';
   const title = document.createElement('span');
   title.textContent = 'Pawnshot';
-  title.style.cssText = 'font-size:13px;font-weight:650;letter-spacing:-.01em;color:rgba(255,255,255,.94);white-space:nowrap;';
+  title.style.cssText = 'font-size:13px;font-weight:650;letter-spacing:-.01em;color:rgba(255,255,255,.94);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-variant-numeric:tabular-nums;';
 
   const ICON_MIN = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="display:block;fill:currentColor"><rect x="3" y="7.2" width="10" height="1.6" rx=".8"/></svg>';
   const ICON_RESTORE = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="display:block;fill:currentColor"><path d="M7.2 3h1.6v4.2H13v1.6H8.8V13H7.2V8.8H3V7.2h4.2z"/></svg>';
@@ -191,6 +334,7 @@
 
   const frame = document.createElement('iframe');
   frame.src = chrome.runtime.getURL('panel.html');
+  frame.title = 'Pawnshot';
   // color-scheme must match the panel document's, otherwise the browser paints the frame opaque and kills the glass.
   frame.style.cssText = 'width:100%;height:600px;border:0;display:block;background:transparent;color-scheme:normal;';
   frame.setAttribute('allowtransparency', 'true');
@@ -198,6 +342,9 @@
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(bar, frame);
   document.documentElement.appendChild(host);
+
+  const panelOrigin = new URL(frame.src).origin;
+  const toPanel = (msg, transfer) => { try { frame.contentWindow.postMessage(msg, panelOrigin, transfer); } catch (e) { /* panel not ready */ } };
 
   // ---- shell appearance: glass (blur) or basic (solid), minimized or open ----
   // Backdrop blur is re-computed whenever the content behind it changes (a playing video, an animated board), which is
@@ -217,6 +364,7 @@
   let minimized = false;
   let dragging = false;
   let compactOn = false;
+  let summary = '';           // best move and eval, shown in the slim pill while minimized
   let baseWidth = 374;        // panel width + border, reported by the panel (differs in compact view)
   let lastPanelHeight = 600;
   // Keep the whole panel on screen: cap the frame to the viewport and slide the panel up if its bottom would be cut off.
@@ -247,6 +395,7 @@
     host.style.width = (minimized ? 248 : baseWidth) + 'px';
     frame.style.display = minimized ? 'none' : 'block';
     bar.style.borderBottom = minimized ? '0' : '1px solid rgba(255,255,255,.07)';
+    title.textContent = minimized && summary ? summary : 'Pawnshot';
     compactBtn.style.display = minimized ? 'none' : 'inline-flex';
     compactBtn.innerHTML = compactOn ? ICON_FULL : ICON_COMPACT;
     const clabel = compactOn ? 'Full view' : 'Compact view';
@@ -261,12 +410,27 @@
     host.dataset.compact = compactOn ? 'true' : 'false';
     fitIntoView();
   }
+
+  // The panel pauses its engine and stops following while it is hidden, so it costs nothing in the background.
+  // Minimized is not hidden: the slim pill keeps showing the best move (handy while a video plays).
+  let lastShown = null;
+  function reportShown() {
+    const shown = host.style.display !== 'none';
+    if (shown === lastShown) return;
+    lastShown = shown;
+    toPanel({ type: 'shown', visible: shown });
+  }
   function setMinimized(v) { minimized = v; applyShell(); }
+  function setHidden(v) {
+    host.style.display = v ? 'none' : 'block';
+    if (v) stopFollow();
+    reportShown();
+  }
   applyShell();
 
   minBtn.addEventListener('click', () => setMinimized(!minimized));
-  compactBtn.addEventListener('click', () => { frame.contentWindow.postMessage({ type: 'toggleCompact' }, panelOrigin); });
-  closeBtn.addEventListener('click', () => { host.style.display = 'none'; });
+  compactBtn.addEventListener('click', () => toPanel({ type: 'toggleCompact' }));
+  closeBtn.addEventListener('click', () => setHidden(true));
   bar.addEventListener('dblclick', (e) => { if (!e.target.closest('button')) setMinimized(!minimized); });
 
   // drag (pointer capture keeps events flowing even over the iframe)
@@ -296,6 +460,15 @@
   bar.addEventListener('pointerup', endDrag);
   bar.addEventListener('pointercancel', endDrag);
 
+  // Full-screen video hides everything outside the full-screen element, the panel included. Move the panel into it
+  // (and back out afterwards). moveBefore keeps the panel's frame alive; without it the panel just stays outside.
+  document.addEventListener('fullscreenchange', () => {
+    const fs = document.fullscreenElement;
+    const target = fs && fs.tagName !== 'VIDEO' && fs !== document.documentElement ? fs : document.documentElement;
+    if (host.parentNode === target || typeof target.moveBefore !== 'function') return;
+    try { target.moveBefore(host, null); fitIntoView(); } catch (e) { /* stays where it is */ }
+  });
+
   // Picture of the visible page for the scanner. The panel hides itself first so it is not in the picture; the
   // background does the capture (Chrome only allows it after the person clicked the toolbar icon on this tab).
   async function captureVisibleTab() {
@@ -318,18 +491,60 @@
     }
   }
 
-  const panelOrigin = new URL(frame.src).origin;
+  // ---- what the panel should know about this page: a chess site, a live game (locked), a video to read ----
+  let lastInfo = '';
+  function pageInfo() {
+    const fp = fairPlay();
+    return { site: fp.site, locked: fp.locked, kind: fp.kind, reason: fp.reason, board: hasBoard(), video: !!findVideo() };
+  }
+  function reportPage(force) {
+    const info = pageInfo();
+    const key = JSON.stringify(info);
+    if (!force && key === lastInfo) return;
+    lastInfo = key;
+    if (info.locked) stopFollow();
+    toPanel({ type: 'page', ...info });
+  }
+  setInterval(() => { if (host.style.display !== 'none' && !document.hidden) reportPage(false); }, 1500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) reportPage(false); });
+
   window.addEventListener('message', async (e) => {
     if (e.origin !== panelOrigin || e.source !== frame.contentWindow) return;
     const d = e.data || {};
-    if (d.type === 'snapshot') {
-      const s = await snapshot();
-      frame.contentWindow.postMessage({ type: 'snapshot', ...s, auto: !!d.auto, id: d.id }, panelOrigin);
+    if (d.type === 'hello') {
+      reportPage(true);
+      lastShown = null;
+      reportShown();
+    } else if (d.type === 'snapshot') {
+      const fp = fairPlay();
+      if (fp.locked) { toPanel({ type: 'snapshot', fen: null, locked: true, reason: fp.reason, auto: !!d.auto, id: d.id }); reportPage(false); return; }
+      const s = await snapshot(!!d.auto);
+      toPanel({ type: 'snapshot', ...s, auto: !!d.auto, id: d.id });
     } else if (d.type === 'capture') {
+      const fp = fairPlay();
+      if (fp.locked) { toPanel({ type: 'captured', id: d.id, ok: false, locked: true, error: fp.reason }); return; }
       const res = await captureVisibleTab();
-      frame.contentWindow.postMessage({ type: 'captured', id: d.id, ...res }, panelOrigin);
+      toPanel({ type: 'captured', id: d.id, ...res });
+    } else if (d.type === 'videoFrame') {
+      const fp = fairPlay();
+      const v = !fp.locked && findVideo();
+      if (fp.locked) { toPanel({ type: 'videoFrame', id: d.id, ok: false, locked: true, error: fp.reason }); return; }
+      if (!v) { toPanel({ type: 'videoFrame', id: d.id, ok: false, error: 'No video on this page.' }); return; }
+      const g = await grabVideo(v, null, 1920);
+      toPanel({ type: 'videoFrame', id: d.id, ...g });
+    } else if (d.type === 'followStart') {
+      if (!fairPlay().locked && Array.isArray(d.board) && d.board.length === 4) startFollow(d.board.map(Number));
+    } else if (d.type === 'followStop') {
+      stopFollow();
+    } else if (d.type === 'followDone') {
+      follow.waiting = 0;
+      if (d.interval) follow.interval = Math.max(600, Math.min(5000, +d.interval || 900));
+      if (follow.board) schedule(follow.interval);
+    } else if (d.type === 'summary') {
+      summary = String(d.text || '').slice(0, 40);
+      if (minimized) applyShell();
     } else if (d.type === 'close') {
-      host.style.display = 'none';
+      setHidden(true);
     } else if (d.type === 'glass') {
       glassOn = !!d.on;
       applyShell();
@@ -345,7 +560,8 @@
 
   window.__pawnshot = {
     toggle() {
-      host.style.display = host.style.display === 'none' ? 'block' : 'none';
+      setHidden(host.style.display !== 'none');
+      if (host.style.display !== 'none') reportPage(true);
     },
   };
 })();

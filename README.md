@@ -1,10 +1,10 @@
 # chrome-extensions
 
-Small personal Chrome extensions (Manifest V3), loaded unpacked, no store listing.
+Small Chrome extensions (Manifest V3). Load them unpacked; Pawnshot is also being prepared for the Chrome Web Store.
 
 | Extension | What it does |
 |---|---|
-| [Pawnshot](board-analyzer) | Floating liquid-glass analysis board with in-browser Stockfish 19 on any page. Reads the board from chess.com / lichess or scans one from any picture or video frame (on-device AI, nothing uploaded), shows the best move and lines, and lets you play moves on the panel board. |
+| [Pawnshot](board-analyzer) | Floating liquid-glass analysis board with in-browser Stockfish 19 on any page. Reads the board from chess.com / lichess or scans one from any picture or YouTube video (on-device AI, nothing uploaded), can follow a video move by move, shows the best move and lines, and lets you play moves on the panel board. Locks itself during live games and puzzles. Free plan plus a one-time Premium. |
 | [regqube-ai-player](regqube-ai-player) | **Krillion Bot** — AI sidekick for Krillion Puffer Party. Reads the category, lines up answers with Groq + Gemini, tracks what others said, and can play your turn automatically. Needs your own API keys (see its README). |
 
 ## Install any extension

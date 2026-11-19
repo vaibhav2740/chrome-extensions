@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pawnshot settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <header class="top">
+    <img src="icons/128.png" alt="" width="44" height="44">
+    <div>
+      <h1>Pawnshot</h1>
+      <p class="sub">Chess board scanner and analysis board · <span id="version"></span></p>
+    </div>
+  </header>
+
+  <main>
+    <section id="welcome" class="card welcome" hidden>
+      <h2>Pawnshot is installed</h2>
+      <ol class="steps">
+        <li><b>Pin it.</b> Click the puzzle-piece icon next to the address bar and pin Pawnshot, so it is one click away.</li>
+        <li><b>Open it on any page.</b> Click the Pawnshot icon, or press <kbd id="shortcut">Alt+Shift+A</kbd>. Click again to hide it.</li>
+        <li><b>Press Snapshot.</b> It reads the board from chess.com and lichess, from a YouTube (or any) video, or from the screen, and shows the best move, the evaluation and the main lines.</li>
+        <li><b>Play through ideas.</b> Drag pieces on the panel board, step back and forth with ← and →, or open the position on Lichess or Chess.com.</li>
+      </ol>
+      <p class="fine">Pawnshot switches itself off while a game is being played on chess.com or lichess. It is made for learning: videos, books, reviews and your finished games.</p>
+    </section>
+
+    <section id="premium" class="card">
+      <div class="card-head">
+        <h2>Plan</h2>
+        <span id="planBadge" class="badge">Free</span>
+      </div>
+      <div class="compare">
+        <div class="col">
+          <h3>Free</h3>
+          <ul>
+            <li>Analysis board with Stockfish 19, on your device</li>
+            <li>Reads chess.com and lichess boards</li>
+            <li>10 picture scans a day (videos, screenshots, files)</li>
+            <li>Depth 20, 3 lines</li>
+            <li>Follow a chess.com or lichess board</li>
+            <li>Edit positions, FEN, open on Lichess or Chess.com</li>
+          </ul>
+        </div>
+        <div class="col gold-col">
+          <h3>Premium</h3>
+          <ul>
+            <li>Everything in Free</li>
+            <li><b>Unlimited</b> picture scans</li>
+            <li><b>Follow a video:</b> the board keeps up move by move</li>
+            <li>Depth 30, up to 5 lines</li>
+            <li>Four more board colours</li>
+            <li>Supports a one-person project</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="buyBox">
+        <p id="saleNote" class="fine"></p>
+        <a id="buyBtn" class="btn gold" target="_blank" rel="noopener noreferrer" hidden>Get Premium</a>
+        <form id="keyForm" class="keyrow" hidden>
+          <input id="keyInput" type="text" placeholder="Paste your license key" autocomplete="off" spellcheck="false" aria-label="License key">
+          <button id="activateBtn" class="btn" type="submit">Activate</button>
+        </form>
+        <p id="keyMsg" class="msg" role="status"></p>
+      </div>
+      <div id="activeBox" hidden>
+        <p id="activeText"></p>
+        <button id="deactivateBtn" class="btn ghost" type="button">Remove the key from this browser</button>
+      </div>
+      <div id="devBox" class="dev" hidden>
+        <label><input type="checkbox" id="devPremium"> Developer: turn on Premium in this unpacked copy (testing only, never in a store install)</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Look</h2>
+      <div class="field">
+        <label for="glass">Panel style</label>
+        <select id="glass">
+          <option value="auto">Auto (Basic on slow devices)</option>
+          <option value="on">Glass (blurred, see-through)</option>
+          <option value="off">Basic (solid, lightest)</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="label">Board colours</span>
+        <div id="themes" class="themes" role="radiogroup" aria-label="Board colours"></div>
+      </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" id="compact"> Start in the compact view</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Analysis</h2>
+      <div class="field">
+        <label for="depth">Search depth</label>
+        <input id="depth" type="number" min="8" max="30">
+        <span class="hint" id="depthHint"></span>
+      </div>
+      <div class="field">
+        <label for="lines">Lines shown</label>
+        <select id="lines"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+      </div>
+      <div class="field">
+        <span class="label">Keyboard shortcut</span>
+        <button id="shortcutBtn" class="btn ghost" type="button">Change it in Chrome</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Fair play</h2>
+      <p>Using an engine in a game that is being played is cheating, and chess.com and lichess close accounts for it. Pawnshot locks itself on chess.com, chesskid.com and lichess while a game or a rated puzzle is in progress on the tab, and every way of reading the board (the page, a video, a screenshot) is refused there. It unlocks when the game is over.</p>
+    </section>
+
+    <section class="card">
+      <h2>Privacy</h2>
+      <p>Pawnshot does not collect, store or send anything about you or the pages you visit. Pictures of boards are read on your device and are never uploaded. Settings stay in your browser.</p>
+      <p>If you buy Premium, your license key is checked with the shop that sold it (about once a week). Nothing else is sent. <a href="https://github.com/vaibhav2740/chrome-extensions/blob/main/board-analyzer/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+    </section>
+
+    <section class="card">
+      <h2>About</h2>
+      <p class="fine">Pawnshot is free software (GPL-3.0). It uses <a href="https://stockfishchess.org" target="_blank" rel="noopener noreferrer">Stockfish</a> (GPL-3.0), the <a href="https://github.com/mdicio/chessimg2pos" target="_blank" rel="noopener noreferrer">chessimg2pos</a> board reader (MIT), ONNX Runtime Web (MIT) and the cburnett pieces. Source code: <a href="https://github.com/vaibhav2740/chrome-extensions/tree/main/board-analyzer" target="_blank" rel="noopener noreferrer">github.com/vaibhav2740/chrome-extensions</a>.</p>
+    </section>
+  </main>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -34,7 +34,9 @@ w.open = (...a) => { opened.push(a); return null; };
 let copied = null;
 const storeLocal = { glassMode: "off" }; // user previously chose Basic
 Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (t) => { copied = t; } }, deviceMemory: 8, hardwareConcurrency: 8 }, configurable: true, writable: true });
-globalThis.chrome = { storage: { local: { get: async () => ({ ...storeLocal }), set: async (o) => { Object.assign(storeLocal, o); } } } };
+const storageListeners = [];
+globalThis.chrome = { storage: { local: { get: async () => ({ ...storeLocal }), set: async (o) => { Object.assign(storeLocal, o); } }, onChanged: { addListener: (fn) => storageListeners.push(fn) } } };
+const storageChange = (o) => { Object.assign(storeLocal, o); const ch = {}; for (const [k, v] of Object.entries(o)) ch[k] = { newValue: v }; storageListeners.forEach((fn) => fn(ch, "local")); };
 const $ = (id) => w.document.getElementById(id);
 // Snapshot now asks the host with an id and waits for the answer carrying the same id.
 const lastAsk = () => posted.filter((m) => m.type === "snapshot" && m.auto === false).at(-1);
@@ -180,12 +182,13 @@ $("fen").value = "8/8/8/3pP3/8/8/8/K6k w - d6 0 1"; $("go").click(); await sleep
 drag("e5", "d6"); await sleep(30);
 check("en passant capture", fenNow().startsWith("8/8/3P4/8/8/8/8/K6k b") || /^8\/8\/3P4\/8\//.test(fenNow()), fenNow());
 
-console.log("   Auto-follow pauses itself when you play a move");
+console.log("   Follow pauses itself when you play a move");
+w.dispatchEvent(new w.MessageEvent("message", { data: { type: "page", site: "chesscom", locked: false, board: true, video: false } }));
 $("fen").value = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"; $("go").click(); await sleep(20);
 $("auto").checked = true; $("auto").onchange();
 drag("e2", "e4"); await sleep(30);
-check("Auto-follow switched off", $("auto").checked === false);
-check("and the user is told why", /Auto-follow paused/.test($("status").textContent), $("status").textContent);
+check("Follow switched off", $("auto").checked === false);
+check("and the user is told why", /Follow paused/.test($("status").textContent), $("status").textContent);
 const pollsAfter = posted.filter((m) => m.type === "snapshot" && m.auto === true).length;
 await sleep(1000);
 check("polling really stopped (your line is not overwritten)", posted.filter((m) => m.type === "snapshot" && m.auto === true).length === pollsAfter);
@@ -205,9 +208,9 @@ check("toggling again returns to full view", !w.document.body.classList.contains
 const css = fs.readFileSync(`${COPY}/panel.css`, "utf8");
 const compactRules = css.slice(css.indexOf("body.compact {"));
 check("compact CSS hides the FEN row, engine lines, settings and secondary links", /body\.compact #lines[\s\S]*?body\.compact \.fenrow[\s\S]*?body\.compact \.row\.small[\s\S]*?body\.compact #openChesscom[\s\S]*?body\.compact #copyFen[\s\S]*?display: none/.test(compactRules));
-check("and does NOT hide the board, best move, Snapshot, Auto-follow, flip or Lichess", !/body\.compact[^{]*(#board\b|#best\b|#snap|#auto|#flip|#openLichess|\.chip)[^{]*\{[^}]*display:\s*none/.test(compactRules));
+check("and does NOT hide the board, best move, Snapshot, Follow, flip or Lichess", !/body\.compact[^{]*(#board\b|#best\b|#snap|#auto|#flip|#openLichess|\.chip)[^{]*\{[^}]*display:\s*none/.test(compactRules));
 
-console.log("A6. auto-follow polling");
+console.log("A6. Follow polling on a chess site");
 const snapsBefore = posted.filter((m) => m.type === "snapshot" && m.auto === true).length;
 $("auto").checked = true; $("auto").onchange();
 await sleep(1800);
@@ -247,34 +250,53 @@ if (typeof lichessUrl === "function") {
   check("URL helpers are pure and exported", lichessUrl("8/8/8/8/8/8/8/K6k w - - 0 1", false) === "https://lichess.org/analysis/8/8/8/8/8/8/8/K6k_w_-_-_0_1" && chesscomUrl("8/8/8/8/8/8/8/K6k w - - 0 1", true).endsWith("&flip=true"));
 }
 
-console.log("A8. glass vs basic style setting");
+console.log("A8. glass vs basic style (set on the options page, applied live)");
 const glassMsgs = () => posted.filter((m) => m.type === "glass");
 await sleep(30);
-check("saved preference (Basic) is restored into the selector", $("glass").value === "off", $("glass").value);
-check("and told to the host as glass:off", glassMsgs().length >= 1 && glassMsgs().at(-1).on === false, JSON.stringify(glassMsgs()));
-$("glass").value = "on"; $("glass").onchange();
-check("choosing Glass tells the host glass:on and saves it", glassMsgs().at(-1).on === true && storeLocal.glassMode === "on", JSON.stringify([glassMsgs().at(-1), storeLocal]));
+check("the Style selector moved to the options page (the panel has fewer controls)", !$("glass"));
+check("saved preference (Basic) is told to the host as glass:off", glassMsgs().length >= 1 && glassMsgs().at(-1).on === false, JSON.stringify(glassMsgs()));
+storageChange({ glassMode: "on" });
+check("choosing Glass on the options page reaches the panel at once", glassMsgs().at(-1).on === true);
 Object.defineProperty(globalThis, "navigator", { value: { deviceMemory: 2, hardwareConcurrency: 8 }, configurable: true, writable: true });
-$("glass").value = "auto"; $("glass").onchange();
-check("Auto on a 2GB device -> Basic", glassMsgs().at(-1).on === false && storeLocal.glassMode === "auto");
+storageChange({ glassMode: "auto" });
+check("Auto on a 2GB device -> Basic", glassMsgs().at(-1).on === false);
 Object.defineProperty(globalThis, "navigator", { value: { deviceMemory: 8, hardwareConcurrency: 1 }, configurable: true, writable: true });
-$("glass").onchange();
+storageChange({ glassMode: "auto" });
 check("Auto on a 1-core device -> Basic", glassMsgs().at(-1).on === false);
 Object.defineProperty(globalThis, "navigator", { value: { deviceMemory: 8, hardwareConcurrency: 8 }, configurable: true, writable: true });
-$("glass").onchange();
+storageChange({ glassMode: "auto" });
 check("Auto on a normal device -> Glass", glassMsgs().at(-1).on === true);
 w.matchMedia = (q) => ({ matches: /reduced-transparency/.test(q) });
-$("glass").onchange();
+storageChange({ glassMode: "auto" });
 check("Auto respects the OS 'reduce transparency' setting", glassMsgs().at(-1).on === false);
 w.matchMedia = undefined;
 Object.defineProperty(globalThis, "navigator", { value: { deviceMemory: 2, hardwareConcurrency: 1 }, configurable: true, writable: true });
-$("glass").value = "on"; $("glass").onchange();
+storageChange({ glassMode: "on" });
 check("explicit Glass overrides Auto even on a weak device", glassMsgs().at(-1).on === true);
-$("glass").value = "auto"; $("glass").onchange();
+Object.defineProperty(globalThis, "navigator", { value: { deviceMemory: 8, hardwareConcurrency: 8 }, configurable: true, writable: true });
+storageChange({ boardTheme: "green" });
+check("a free board theme applies live", w.document.documentElement.style.getPropertyValue("--sq-dark") === "#769656");
+storageChange({ boardTheme: "purple" });
+check("a Premium theme falls back to the classic board on the free plan", w.document.documentElement.style.getPropertyValue("--sq-dark") === "#b58863");
+
+console.log("A9. the panel board only redraws when something on it changes");
+$("fen").value = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"; $("go").click();
+await sleep(40);
+const firstSquare = w.document.querySelector("#board .sq");
+FakeWorker.last.emit("info depth 15 multipv 1 score cp 30 pv e2e4 e7e5");
+await sleep(40);
+const afterBest = w.document.querySelector("#board .sq");
+FakeWorker.last.emit("info depth 16 multipv 1 score cp 33 pv e2e4 e7e5 g1f3");
+await sleep(160);
+check("a deeper line with the same best move does not rebuild the 64 squares", w.document.querySelector("#board .sq") === afterBest && afterBest !== firstSquare);
+FakeWorker.last.emit("info depth 16 multipv 1 score cp 20 lowerbound pv d2d4");
+await sleep(160);
+check("half-finished 'lowerbound' lines are ignored (no jumping eval)", $("bestMove").textContent === "e4" && $("bestEval").textContent === "+0.33", $("bestMove").textContent + " " + $("bestEval").textContent);
+check("the best move is sent to the host for the minimized pill", posted.some((m) => m.type === "summary" && /^e4\s+\+0\.33/.test(m.text)), JSON.stringify(posted.filter((m) => m.type === "summary").slice(-2)));
 
 // ---------------- Part B: host shell (content.js) ----------------
 console.log("B. host shell");
-const hostDom = new JSDOM("<!doctype html><body><p>page</p></body>", { url: "https://www.chess.com/play", runScripts: "outside-only", pretendToBeVisual: true });
+const hostDom = new JSDOM("<!doctype html><body><p>page</p></body>", { url: "https://www.chess.com/analysis", runScripts: "outside-only", pretendToBeVisual: true });
 const hw = hostDom.window;
 hw.chrome = { runtime: { getURL: (p) => `chrome-extension://abc/${p}`, sendMessage: (m, cb) => cb && cb(null), lastError: undefined } };
 const code = fs.readFileSync(`${COPY}/content.js`, "utf8");
@@ -348,6 +370,7 @@ bar.dispatchEvent(new hw.MouseEvent("pointerup", { bubbles: true }));
 check("pressing a header button never starts a drag", host.style.left === leftBefore);
 closeBtn.click();
 check("Close hides the shell", host.style.display === "none");
+check("and tells the panel it is hidden (so the engine and Follow pause)", toPanel.some((m) => m.type === "shown" && m.visible === false), JSON.stringify(toPanel.filter((m) => m.type === "shown")));
 hw.eval(code);
 check("running again (toolbar icon) shows it again", host.style.display === "block");
 fromPanel({ type: "close" });

@@ -165,7 +165,9 @@ globalThis.ResizeObserver = class { constructor() {} observe() {} };
 w.open = () => null;
 const setNav = (o) => Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} }, deviceMemory: 8, hardwareConcurrency: 8, ...o }, configurable: true, writable: true });
 setNav({});
-globalThis.chrome = { storage: { local: { get: async () => ({}), set: async () => {} } } };
+// Premium (a developer licence in an unpacked copy), so the daily free-scan allowance does not get in the way of
+// these reader tests; the allowance itself is tested in premium.test.mjs.
+globalThis.chrome = { runtime: { getManifest: () => ({ version: "test" }) }, storage: { local: { get: async (k) => (k === "license" ? { license: { status: "dev" } } : {}), set: async () => {} } } };
 const created = [], revoked = [];
 URL.createObjectURL = () => { const u = `blob:test/${created.length}`; created.push(u); return u; };
 URL.revokeObjectURL = (u) => revoked.push(u);
@@ -209,7 +211,7 @@ const clickAction = (label) => [...$("noteActions").querySelectorAll("button")].
 
 console.log("4a. one button reads the page, or else the screen");
 check("the toolbar has Snapshot, Edit and a side button for pictures", !!$("snap") && !!$("editBtn") && !!$("pictureBtn") && $("snap").closest(".row").contains($("editBtn")) && $("snap").closest(".row").contains($("pictureBtn")));
-check("undo, redo and flip moved next to Auto-follow", $("auto").closest(".row").contains($("undo")) && $("auto").closest(".row").contains($("flip")));
+check("undo, redo and flip sit next to Follow", $("auto").closest(".row").contains($("undo")) && $("auto").closest(".row").contains($("flip")));
 check("there is no scan sheet any more", !$("scan") && !$("scanBtn"));
 $("snap").click();
 const first = asks().at(-1);
@@ -379,13 +381,14 @@ setNav({ deviceMemory: 1 });
 nextResult = () => "hang";
 $("snap").dispatchEvent(new w.MouseEvent("click", { bubbles: true, shiftKey: true }));
 await waitFor(() => caps().length > 0 && /Capturing/.test($("snapLabel").textContent));
-check("a 1 GB device is told reading may be slow while it works", /little memory/.test($("status").textContent), $("status").textContent);
+check("a 1 GB device is told reading may be slow while it works", /slow side/.test($("status").textContent), $("status").textContent);
 $("snap").click();
 nextResult = () => result();
 setNav({});
 
 console.log("4h. editing any position on the board itself");
 await resetBoard();
+reply({ type: "page", site: "lichess", locked: false, board: true, video: false });
 $("auto").checked = true; $("auto").onchange();
 const stops = FakeWorker.engine.sent.filter((m) => m === "stop").length;
 $("editBtn").click();
@@ -395,7 +398,7 @@ check("the palette has Move, 12 pieces and an eraser", $("ePalette").querySelect
 check("turn and castling start from the position (White to move, all four rights)", w.document.querySelector("input[name=eTurn]:checked").value === "w" && ["eCK", "eCQ", "eCk", "eCq"].every((id) => $(id).checked && !$(id).disabled));
 check("Done is available for a legal position", !$("eDone").disabled);
 await reply({ type: "snapshot", fen: ITALIAN + " b - - 0 1", src: "page", auto: true });
-check("Auto-follow ticks are ignored while editing", fenNow().startsWith(START));
+check("Follow ticks are ignored while editing", fenNow().startsWith(START));
 $("ePalette").querySelector('[data-tool="Q"]').click();
 press("e5");
 check("palette + tap places a piece", pieceAt("e5") === "White queen");
@@ -426,7 +429,7 @@ const beforeEdit = fenNow();
 $("eDone").click(); await sleep(30);
 check("Done: the edited position is on the board and being analysed", !w.document.body.classList.contains("editing") && fenNow().split(" ")[1] === "b" && fenNow().split(" ")[2].includes("K") && pieceAt("b5") === "White pawn" && pieceAt("c2") === null && FakeWorker.engine.sent.some((m) => String(m).startsWith("position fen " + fenNow().split(" ").slice(0, 2).join(" "))), fenNow());
 check("the view stays the way it was flipped", boardEl.querySelector(".sq").dataset.sq === "h1");
-check("Auto-follow was switched off so the page cannot overwrite the edit", $("auto").checked === false && /Auto-follow is off/.test($("status").textContent));
+check("Follow was switched off so the page cannot overwrite the edit", $("auto").checked === false && /Follow is off/.test($("status").textContent), $("status").textContent);
 $("undo").click(); await sleep(20);
 check("Undo goes back to the position before the edit", fenNow() === beforeEdit);
 $("flip").click();
@@ -491,15 +494,16 @@ check("a Snapshot request is answered with the same id (so the panel can match i
 toPanel.length = 0;
 fromPanel({ type: "snapshot", auto: true });
 await sleep(100);
-check("Auto-follow requests carry no id", toPanel.some((m) => m.type === "snapshot" && m.auto === true && m.id === undefined));
+check("Follow requests carry no id", toPanel.some((m) => m.type === "snapshot" && m.auto === true && m.id === undefined));
 
 // ---------------- 6. manifest sanity ----------------
 console.log("6. manifest");
 const man = JSON.parse(fs.readFileSync(`${COPY}/manifest.json`, "utf8"));
 check("only activeTab/scripting/storage, no blanket host access", JSON.stringify(man.permissions.sort()) === '["activeTab","scripting","storage"]' && !man.host_permissions);
+check("the licence servers are optional (asked for only when a key is activated)", JSON.stringify(man.optional_host_permissions) === '["https://api.lemonsqueezy.com/*","https://api.gumroad.com/*"]');
 check("wasm allowed for extension pages", /wasm-unsafe-eval/.test(man.content_security_policy.extension_pages));
 const war = man.web_accessible_resources[0].resources.join(" ");
-check("scanner files are web accessible", /scanner\/\*/.test(war) && /editor\.js/.test(war) && /board-view\.js/.test(war));
+check("only the panel page and the icons are web accessible (pages cannot probe the engine, models or code)", war === "panel.html icons/*", war);
 for (const f of ["scanner/core.js", "scanner/engine.js", "scanner/runner.js", "scanner/worker.js", "scanner/client.js", "board-view.js", "editor.js", "scan-flow.js", "crop-ui.js", "engine-client.js", "links.js", "notation.js", "settings.js"]) check(`${f} exists`, fs.existsSync(`${SRC}/${f}`));
 for (const f of ["scanner/models/board.onnx", "scanner/models/locator.onnx", "scanner/ort/ort.wasm.min.mjs", "scanner/ort/ort-wasm-simd-threaded.wasm", "scanner/ort/ort-wasm-simd-threaded.mjs"]) check(`${f} is shipped`, fs.existsSync(`${SRC}/${f}`) && fs.statSync(`${SRC}/${f}`).size > 10000);
 

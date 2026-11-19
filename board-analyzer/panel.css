@@ -2,6 +2,7 @@
 * { box-sizing: border-box; }
 
 html { background: transparent; }
+:root { --sq-light: #f0d9b5; --sq-dark: #b58863; }
 
 body {
   margin: 0;
@@ -31,8 +32,8 @@ body {
 #board:active { cursor: grabbing; }
 .sq.dot::after { content: ''; position: absolute; width: 30%; height: 30%; border-radius: 50%; background: rgba(0, 0, 0, 0.25); }
 .sq.cap { box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.28); }
-.sq.light { background: #f0d9b5; }
-.sq.dark { background: #b58863; }
+.sq.light { background: var(--sq-light); }
+.sq.dark { background: var(--sq-dark); }
 .sq.hl { box-shadow: inset 0 0 0 100px rgba(255, 235, 59, 0.35); }
 .sq.last { box-shadow: inset 0 0 0 100px rgba(155, 199, 0, 0.36); }
 .coord { position: absolute; font-size: 9px; font-weight: 600; opacity: 0.6; color: #333; pointer-events: none; font-style: normal; }
@@ -58,6 +59,8 @@ body {
   background: linear-gradient(180deg, #ffffff, #d9dde8);
   transition: height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+/* the bar turns with the board: White's share is drawn on White's side */
+#evalbar.flipped #evalfill { top: 0; bottom: auto; }
 
 /* ---------- Best move card ---------- */
 #best {
@@ -100,6 +103,9 @@ button, input, select {
 button { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 600; transition: background 0.16s ease, transform 0.12s ease; }
 button:hover { background: rgba(255, 255, 255, 0.17); }
 button:active { transform: scale(0.96); }
+button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+button:disabled:active { transform: none; }
+label.chip.off { opacity: 0.45; }
 button svg { width: 14px; height: 14px; fill: currentColor; flex: none; }
 button:focus-visible, select:focus-visible, input:focus-visible, label.chip:has(input:focus-visible) { outline: 2px solid #0a84ff; outline-offset: 2px; }
 
@@ -143,7 +149,7 @@ button.link svg { width: 12px; height: 12px; opacity: 0.7; }
 select { appearance: none; -webkit-appearance: none; padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23aab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 11px center; }
 select option { color: #111; background: #fff; }
 
-#status { margin-top: 10px; font-size: 11px; color: rgba(235, 238, 255, 0.5); min-height: 14px; word-break: break-all; }
+#status { margin-top: 10px; font-size: 11px; color: rgba(235, 238, 255, 0.5); min-height: 14px; overflow-wrap: anywhere; }
 #status.err { color: #ff9d96; }
 
 /* ---------- compact view: board, best move, and only the essentials ---------- */
@@ -164,6 +170,7 @@ body.compact .row.small,
 body.compact #openChesscom,
 body.compact #copyFen { display: none; }
 body.compact #status { margin-top: 6px; }
+body.compact .row.plan { display: none; }
 
 /* ---------- reading the screen or a picture ---------- */
 /* Snapshot turns into a progress button while it works (click again to cancel) */
@@ -235,3 +242,36 @@ body.compact .row.castle { gap: 4px; }
 body.compact #cropImg { max-height: 230px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } #snap.busy::before { animation-duration: 2.4s; } }
+
+/* ---------- plan row: Free / Premium, settings ---------- */
+.row.plan { margin-top: 8px; gap: 8px; }
+#planText { flex: 1; min-width: 0; font-size: 11px; color: rgba(235, 238, 255, 0.55); }
+#planText.premium { color: #ffd479; font-weight: 600; }
+#planText.low { color: #ffb86b; }
+button.link.star { flex: 0 0 auto; padding: 6px 12px; font-size: 11.5px; color: #ffd479; background: rgba(255, 196, 0, 0.10); border-color: rgba(255, 196, 0, 0.28); }
+button.link.star:hover { background: rgba(255, 196, 0, 0.18); }
+button.icon.small { width: 30px; height: 30px; }
+button.icon.small svg { width: 13px; height: 13px; }
+
+/* ---------- fair play lock: a game is being played on this tab ---------- */
+#lock { position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; padding: 18px; border-radius: 20px; background: rgba(8, 10, 16, 0.78); backdrop-filter: blur(3px); }
+#lock[hidden] { display: none; }
+.lock-card { text-align: center; max-width: 250px; }
+.lock-card svg { width: 30px; height: 30px; fill: #ffd479; }
+.lock-title { margin-top: 6px; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.lock-card p { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: rgba(235, 238, 255, 0.78); }
+body.locked #arrows, body.locked #evalbar, body.locked #best, body.locked #lines, body.locked #scanNote { display: none; }
+body.compact #lock { padding: 12px; }
+body.compact .lock-card p { font-size: 11px; }
+
+/* ---------- Premium sheet ---------- */
+#upsell { display: none; }
+body.upsell #upsell { display: block; }
+body.upsell #main { display: none; }
+.gold { background: linear-gradient(180deg, #ffe08a, #ffb627); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.perks { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.perks li { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); }
+.perks b { font-size: 12.5px; }
+.perks span { font-size: 11.5px; line-height: 1.4; color: rgba(235, 238, 255, 0.7); }
+#upsell .row button { flex: 1; }
+#upsellGo { background: linear-gradient(180deg, #ffd25a 0%, #ffb627 60%, #f29d00 100%); color: #2a1a00; border-color: rgba(255, 255, 255, 0.3); box-shadow: 0 4px 14px rgba(255, 182, 39, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }

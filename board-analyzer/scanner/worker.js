@@ -1,5 +1,5 @@
 // Module worker: loads onnxruntime-web and reads boards off the UI thread.
-// Protocol: in  { type:'scan', id, blob, crop }   out { type:'stage'|'result'|'error', id, ... }
+// Protocol: in  { type:'scan', id, blob, crop, opts }   out { type:'stage'|'result'|'error', id, ... }
 //           in  { type:'release' }                frees the models
 
 import * as ort from './ort/ort.wasm.min.mjs';
@@ -20,7 +20,7 @@ self.onmessage = async (e) => {
   if (m.type !== 'scan') return;
   currentId = m.id;
   try {
-    const result = await runner.scan(m.blob, m.crop || null);
+    const result = await runner.scan(m.blob, m.crop || null, m.opts || {});
     postMessage({ type: 'result', id: m.id, result });
   } catch (err) {
     postMessage({ type: 'error', id: m.id, message: String((err && err.message) || err) });

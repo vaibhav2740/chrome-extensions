@@ -1,18 +1,34 @@
 {
   "manifest_version": 3,
-  "name": "Pawnshot: Chess Analyzer & Board Scanner",
-  "version": "1.5.1",
-  "description": "Floating analysis board with on-device Stockfish. Reads positions from chess.com and lichess, or scans a board from any picture or video frame. Best moves, eval and top lines.",
+  "name": "Pawnshot: Chess Board Scanner & Stockfish Analysis",
+  "short_name": "Pawnshot",
+  "version": "2.0.0",
+  "description": "Scan a chess board from any YouTube video, picture or web page and analyze it with Stockfish on your device. Fair-play safe.",
+  "homepage_url": "https://github.com/vaibhav2740/chrome-extensions/tree/main/board-analyzer",
   "permissions": [
     "activeTab",
     "scripting",
     "storage"
   ],
+  "optional_host_permissions": [
+    "https://api.lemonsqueezy.com/*",
+    "https://api.gumroad.com/*"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
-    "default_title": "Pawnshot — toggle (Alt+Shift+A)"
+    "default_title": "Pawnshot: show or hide (Alt+Shift+A)",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   },
   "commands": {
     "_execute_action": {
@@ -27,19 +43,6 @@
     {
       "resources": [
         "panel.html",
-        "panel.js",
-        "panel.css",
-        "board-view.js",
-        "editor.js",
-        "scan-flow.js",
-        "crop-ui.js",
-        "engine-client.js",
-        "links.js",
-        "notation.js",
-        "settings.js",
-        "lib/*",
-        "engine/*",
-        "scanner/*",
         "icons/*"
       ],
       "matches": [

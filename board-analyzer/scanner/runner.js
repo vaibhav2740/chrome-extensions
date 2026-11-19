@@ -54,10 +54,15 @@ export function createRunner({ ort, base, onStage }) {
     },
   });
   return {
-    async scan(blob, crop) {
+    // opts.box: [x0, y0, x1, y1] where the board already is in the picture (Follow on a video: the board stays put),
+    // in the picture's own pixels. The locator is skipped, which makes a read about three times faster.
+    async scan(blob, crop, opts = {}) {
       const d = await decodeImage(blob, crop);
+      const box = opts.box
+        ? opts.box.map((v, i) => (v - d.origin[i % 2]) * d.scale)
+        : null;
       // a hand-drawn box already gives the locator a tight view, so it needs fewer passes
-      const r = await engine.read(d.image, { passes: crop ? 2 : 3 });
+      const r = await engine.read(d.image, box ? { box } : { passes: crop ? 2 : 3 });
       // map the found corners back onto the original picture
       r.corners = r.corners.map(([x, y]) => [x / d.scale + d.origin[0], y / d.scale + d.origin[1]]);
       r.imageSize = d.size;

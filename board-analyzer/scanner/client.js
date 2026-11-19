@@ -81,14 +81,14 @@ export function createScanner({
     if (inPage) { try { await inPage.release(); } catch (e) { /* nothing loaded */ } inPage = null; }
   }
 
-  async function scanInPage(blob, crop) {
+  async function scanInPage(blob, crop, opts) {
     if (!inPage) inPage = await makeInPage(onStage);
-    return inPage.scan(blob, crop);
+    return inPage.scan(blob, crop, opts);
   }
 
   return {
-    // blob: image file/Blob. crop: optional [x0,y0,x1,y1] in the picture's pixels.
-    async scan(blob, crop = null) {
+    // blob: image file/Blob. crop: optional [x0,y0,x1,y1] in the picture's pixels. opts.box: see runner.js.
+    async scan(blob, crop = null, opts = {}) {
       clearTimeout(idleTimer);
       try {
         if (!useInPage) {
@@ -98,11 +98,11 @@ export function createScanner({
             useInPage = true; // worker unavailable here: stay on the page from now on
           }
         }
-        if (useInPage) return await scanInPage(blob, crop);
+        if (useInPage) return await scanInPage(blob, crop, opts);
         const id = nextId++;
         return await new Promise((resolve, reject) => {
           waiting.set(id, { resolve, reject });
-          worker.postMessage({ type: 'scan', id, blob, crop });
+          worker.postMessage({ type: 'scan', id, blob, crop, opts });
         });
       } finally {
         touchIdle();

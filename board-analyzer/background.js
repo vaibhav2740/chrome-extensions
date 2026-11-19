@@ -1,11 +1,31 @@
-// Toggle the panel: inject content.js (idempotent, it toggles itself if already present).
+import { PROVIDER_ORIGINS, loadLicense, needsCheck, revalidate, saveLicense } from './license.js';
+
+// Toggle the panel: inject the fair-play check and content.js (idempotent, it toggles itself if already present).
 chrome.action.onClicked.addListener(async (tab) => {
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['fairplay.js', 'content.js'] });
   } catch (e) {
-    console.warn('Cannot inject on this page (chrome:// pages, Web Store and PDFs are blocked):', e.message);
+    console.warn('Cannot inject on this page (chrome:// pages, the Web Store and the PDF viewer are blocked):', e.message);
   }
 });
+
+// First install: a short welcome page (pin the icon, how Snapshot works, fair play).
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('options.html#welcome') });
+  checkLicense();
+});
+chrome.runtime.onStartup.addListener(() => { checkLicense(); });
+
+// Re-check a Premium key about once a week. Offline or server trouble keeps Premium on (grace period, see license.js).
+async function checkLicense() {
+  try {
+    const rec = await loadLicense();
+    if (!needsCheck(rec)) return;
+    const origin = PROVIDER_ORIGINS[rec.provider];
+    if (!origin || !(await chrome.permissions.contains({ origins: [origin] }))) return;
+    await saveLicense(await revalidate(rec));
+  } catch (e) { /* next time */ }
+}
 
 // Runs inside the page's own JS world so it can read chess.com's internal game object.
 function mainWorldFen() {
@@ -13,7 +33,7 @@ function mainWorldFen() {
     const boards = [...document.querySelectorAll('wc-chess-board, chess-board')];
     for (const el of boards) {
       const g = el.game;
-      if (g && typeof g.getFEN === 'function') return { fen: g.getFEN(), src: 'chess.com game object' };
+      if (g && typeof g.getFEN === 'function') return { fen: g.getFEN(), src: 'chess.com game' };
     }
   } catch (e) {}
   try {
@@ -28,7 +48,7 @@ function mainWorldFen() {
 function captureError(e) {
   const m = String((e && e.message) || e);
   if (/activeTab|permission|cannot access|not allowed/i.test(m)) {
-    return 'Chrome only allows capturing after you click the Pawnshot icon on this tab. Click it once, or paste a screenshot instead.';
+    return 'Chrome only allows a screenshot after you click the Pawnshot icon on this tab. Click it once, or paste a screenshot instead.';
   }
   return 'Could not capture this tab: ' + m;
 }
@@ -47,4 +67,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse(null));
     return true; // async response
   }
+  if (msg && msg.type === 'openOptions') {
+    const hash = typeof msg.section === 'string' && /^[a-z]+$/.test(msg.section) ? '#' + msg.section : '';
+    chrome.tabs.create({ url: chrome.runtime.getURL('options.html' + hash) });
+    return false;
+  }
+  if (msg && msg.type === 'checkLicense') { checkLicense(); return false; }
+  return false;
 });

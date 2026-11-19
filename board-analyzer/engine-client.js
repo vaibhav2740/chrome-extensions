@@ -1,8 +1,9 @@
 // Stockfish in a worker. analyse(fen) (re)starts the search; the engine's lines arrive through onLines.
 //   lines[i] = { cp, mate, depth, pv: [uci...] } for the i-th best line, scores from White's point of view.
 
-// deps: { getSettings() -> { multipv, depth }, onLines(lines), onError(message) }
-export function createEngineClient({ getSettings, onLines, onError }) {
+// deps: { getSettings() -> { multipv, depth }, onLines(lines), onError(message), hashMb }
+// hashMb: the engine's table size. Smaller on weak devices (memory is what runs out first there).
+export function createEngineClient({ getSettings, onLines, onError, hashMb = 64 }) {
   let worker = null;
   let ready = false;
   let pending = null; // search request waiting for the engine to be ready / flushed
@@ -21,7 +22,7 @@ export function createEngineClient({ getSettings, onLines, onError }) {
   function onEngine(line) {
     if (line === 'uciok') {
       worker.postMessage('setoption name Threads value 1');
-      worker.postMessage('setoption name Hash value 64');
+      worker.postMessage('setoption name Hash value ' + hashMb);
       worker.postMessage('isready');
     } else if (line === 'readyok') {
       ready = true;
@@ -40,6 +41,8 @@ export function createEngineClient({ getSettings, onLines, onError }) {
     const si = t.indexOf('score');
     if (si < 0) return;
     const kind = t[si + 1], val = +t[si + 2];
+    // "lowerbound"/"upperbound" lines are half-finished guesses; showing them makes the eval jump about.
+    if (t[si + 3] === 'lowerbound' || t[si + 3] === 'upperbound') return;
     const pv = t.slice(t.indexOf('pv') + 1);
     // Stockfish scores are from the side to move; convert to White's perspective.
     lines[multipv - 1] = { cp: kind === 'cp' ? val * sign : null, mate: kind === 'mate' ? val * sign : null, depth, pv };

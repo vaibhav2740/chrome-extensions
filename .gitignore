@@ -5,3 +5,6 @@ node_modules/
 # Local-only secrets and backups: never commit
 **/keys.local.js
 _backups/
+
+# Store builds (npm run pack)
+pawnshot-*.zip
