@@ -598,6 +598,11 @@
     } else if (/\bsaint\s+/i.test(trimmed)) {
       variants.push(trimmed.replace(/\bsaint\s+/i, "St. "));
     }
+    // If word contains accented characters, also try plain ASCII unaccented version as a fallback variant
+    const unaccented = trimmed.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (unaccented !== trimmed) {
+      variants.push(unaccented);
+    }
     return variants.filter((v) => {
       const vk = norm(v);
       return v && v !== word && vk && !isUnavailable(vk);
@@ -955,7 +960,8 @@
   function getKeyboardCodes(char) {
     if (char === " ") return { code: "Space", keyCode: 32 };
     if (char >= "0" && char <= "9") return { code: `Digit${char}`, keyCode: char.charCodeAt(0) };
-    if (/[a-zA-Z]/.test(char)) return { code: `Key${char.toUpperCase()}`, keyCode: char.toUpperCase().charCodeAt(0) };
+    const baseChar = char.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (/[a-zA-Z]/.test(baseChar)) return { code: `Key${baseChar.toUpperCase()}`, keyCode: baseChar.toUpperCase().charCodeAt(0) };
     if (char === "-") return { code: "Minus", keyCode: 189 };
     if (char === ".") return { code: "Period", keyCode: 190 };
     if (char === "'" || char === "’") return { code: "Quote", keyCode: 222 };
