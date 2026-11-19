@@ -13,7 +13,10 @@ A floating, draggable analysis board for any page, powered by Stockfish 19 (lite
 - **Snapshot**: reads the board currently displayed on the page, then shows the best move, eval and top lines.
 - **Auto-follow**: re-reads the board every 0.8s and re-analyzes whenever it changes (live games, stepping through moves).
 - Paste any FEN and press **Analyze** (works on every site).
-- **Play on board**: drag (or click-click) pieces on the panel board to try moves without touching the real board. Legal moves are shown as dots, evaluation updates after each move, ↶ undoes. Pauses Auto-follow; press Snapshot to go back to the real position.
+- **Move pieces** like on an analysis board: drag and drop, or click a piece then its destination. Legal moves show as dots, the last move is highlighted, and a picker appears for promotions. Either side can move (the turn follows the piece you move), so a wrongly guessed side-to-move never locks the board. **←** / **→** (or the undo/redo buttons) step through your moves. Playing a move pauses Auto-follow so the page does not overwrite your line; press Snapshot to return to the real position.
+- **Lichess / Chess.com / Copy FEN**: continue the exact same position (with your Turn override and board orientation) on the Lichess or Chess.com analysis board in a new tab, or copy the FEN. These links are built from each site's documented URL pattern.
+- Header buttons: the corner-brackets button switches between the **full panel and a compact view** (board, best move, Snapshot, Auto-follow, undo/redo/flip and a Lichess link; the choice is remembered), **–** minimizes the panel to a slim pill (also: double-click the header), **×** hides it. The panel opens near the top and always keeps itself fully on screen. Click the toolbar icon (or Alt+Shift+A) to bring it back.
+- **Style** (Auto / Glass / Basic): Glass uses a blur effect; Basic is a solid panel that is lighter on weak devices or over playing video. Auto picks Basic for "reduce transparency" users and very low-end devices.
 - Turn / Depth / Lines controls; the flip button turns the board around.
 - The panel resizes itself to fit; the glass frame follows the content.
 

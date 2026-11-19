@@ -27,15 +27,25 @@ body {
 }
 .sq { display: flex; align-items: center; justify-content: center; position: relative; }
 .sq img { width: 100%; height: 100%; display: block; user-select: none; }
-body.play #board { cursor: grab; touch-action: none; }
+#board { cursor: grab; touch-action: none; }
+#board:active { cursor: grabbing; }
 .sq.dot::after { content: ''; position: absolute; width: 30%; height: 30%; border-radius: 50%; background: rgba(0, 0, 0, 0.25); }
 .sq.cap { box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.28); }
 .sq.light { background: #f0d9b5; }
 .sq.dark { background: #b58863; }
 .sq.hl { box-shadow: inset 0 0 0 100px rgba(255, 235, 59, 0.35); }
+.sq.last { box-shadow: inset 0 0 0 100px rgba(155, 199, 0, 0.36); }
 .coord { position: absolute; font-size: 9px; font-weight: 600; opacity: 0.6; color: #333; pointer-events: none; font-style: normal; }
 .coord.f { right: 3px; bottom: 1px; }
 .coord.r { left: 3px; top: 1px; }
+/* promotion picker: dims the board and offers the four pieces */
+#promo { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; border-radius: 20px; background: rgba(8, 10, 16, 0.55); }
+#promo[hidden] { display: none; }
+.promo-card { display: flex; gap: 8px; padding: 12px; border-radius: 26px; background: rgba(30, 33, 46, 0.94); border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); }
+.promo-btn { width: 56px; height: 56px; padding: 4px; border-radius: 18px; background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.10); }
+.promo-btn:hover { background: rgba(255, 255, 255, 0.22); }
+.promo-btn img { width: 100%; height: 100%; display: block; }
+
 #arrows { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; border-radius: 20px; }
 
 #evalbar {
@@ -122,6 +132,10 @@ label.chip input:checked + span::before { background: #04210f; }
 #go { padding: 9px 18px; }
 input:focus, select:focus { outline: none; border-color: #0a84ff; box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.28); }
 
+.row.links { gap: 8px; }
+button.link { flex: 1; padding: 8px 10px; font-size: 12px; color: rgba(235, 238, 255, 0.85); }
+button.link svg { width: 12px; height: 12px; opacity: 0.7; }
+
 .row.small { margin-top: 12px; gap: 10px; color: rgba(235, 238, 255, 0.6); font-weight: 500; }
 .row.small label { display: inline-flex; align-items: center; gap: 6px; }
 .row.small input[type=number] { width: 58px; padding: 6px 10px; }
@@ -131,5 +145,24 @@ select option { color: #111; background: #fff; }
 
 #status { margin-top: 10px; font-size: 11px; color: rgba(235, 238, 255, 0.5); min-height: 14px; word-break: break-all; }
 #status.err { color: #ff9d96; }
+
+/* ---------- compact view: board, best move, and only the essentials ---------- */
+body.compact { width: 296px; padding: 12px 12px 14px; }
+body.compact #boardWrap { width: 244px; height: 244px; margin-left: 20px; }
+body.compact #board, body.compact #arrows, body.compact #promo { border-radius: 16px; }
+body.compact #evalbar { left: -16px; width: 10px; }
+body.compact #best { margin: 12px 0 4px; padding: 8px 14px; border-radius: 22px; gap: 10px; }
+body.compact #bestMove { font-size: 22px; }
+body.compact #bestEval { font-size: 12px; padding: 2px 8px; }
+body.compact .row { margin-top: 8px; gap: 6px; }
+body.compact #snap { padding: 8px 12px; }
+body.compact button.icon { width: 34px; height: 34px; }
+body.compact label.chip span { padding: 7px 12px; }
+body.compact #lines,
+body.compact .fenrow,
+body.compact .row.small,
+body.compact #openChesscom,
+body.compact #copyFen { display: none; }
+body.compact #status { margin-top: 6px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

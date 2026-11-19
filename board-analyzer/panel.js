@@ -112,6 +112,105 @@ function scoreClass(l) {
   return v > 0 ? 'pos' : v < 0 ? 'neg' : '';
 }
 
+// ---------- open this position elsewhere ----------
+
+// Lichess takes the FEN in the path with spaces as underscores; ?color=black shows the board from Black's side.
+export function lichessUrl(fen, flippedView) {
+  return 'https://lichess.org/analysis/' + fen.trim().replace(/\s+/g, '_') + (flippedView ? '?color=black' : '');
+}
+
+export function chesscomUrl(fen, flippedView) {
+  return 'https://www.chess.com/analysis?fen=' + encodeURIComponent(fen.trim()) + '&flip=' + (flippedView ? 'true' : 'false');
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { /* blocked */ }
+    ta.remove();
+    return ok;
+  }
+}
+
+function openExternal(url) {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+// ---------- glass vs basic style ----------
+// Backdrop blur is cheap on most machines but costly on weak GPUs, especially over playing video, so it is a setting.
+// Auto turns it off for "reduce transparency" users and very low-end devices.
+function effectiveGlass(mode) {
+  if (mode === 'on') return true;
+  if (mode === 'off') return false;
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-transparency: reduce)').matches) return false;
+    if (navigator.deviceMemory && navigator.deviceMemory <= 2) return false;
+    if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) return false;
+  } catch (e) { /* unknown: assume capable */ }
+  return true;
+}
+
+const hasChromeStorage = () => typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
+
+async function loadGlassMode() {
+  try {
+    if (hasChromeStorage()) {
+      const r = await chrome.storage.local.get('glassMode');
+      if (['auto', 'on', 'off'].includes(r.glassMode)) return r.glassMode;
+    } else if (typeof localStorage !== 'undefined') {
+      const v = localStorage.getItem('ba.glassMode');
+      if (['auto', 'on', 'off'].includes(v)) return v;
+    }
+  } catch (e) { /* fall through */ }
+  return 'auto';
+}
+
+function saveGlassMode(mode) {
+  try {
+    if (hasChromeStorage()) chrome.storage.local.set({ glassMode: mode });
+    else if (typeof localStorage !== 'undefined') localStorage.setItem('ba.glassMode', mode);
+  } catch (e) { /* not persisted; still applied for this session */ }
+}
+
+// ---------- compact view ----------
+// The host header owns the button; the panel owns the state (so it persists) and tells the host its width.
+let compact = false;
+const COMPACT_WIDTH = 296, FULL_WIDTH = 372;
+
+function applyCompact() {
+  document.body.classList.toggle('compact', compact);
+  parent.postMessage({ type: 'layout', compact, width: compact ? COMPACT_WIDTH : FULL_WIDTH }, '*');
+}
+
+function setCompact(on) {
+  compact = !!on;
+  try {
+    if (hasChromeStorage()) chrome.storage.local.set({ compactMode: compact });
+    else if (typeof localStorage !== 'undefined') localStorage.setItem('ba.compactMode', compact ? '1' : '0');
+  } catch (e) { /* not persisted */ }
+  applyCompact();
+}
+
+async function loadCompact() {
+  try {
+    if (hasChromeStorage()) return !!(await chrome.storage.local.get('compactMode')).compactMode;
+    if (typeof localStorage !== 'undefined') return localStorage.getItem('ba.compactMode') === '1';
+  } catch (e) { /* default */ }
+  return false;
+}
+
+function applyGlass() {
+  parent.postMessage({ type: 'glass', on: effectiveGlass($('glass').value) }, '*');
+}
+
 function fmtScore(l) {
   if (!l) return '';
   if (l.mate != null) return (l.mate > 0 ? '+M' : '-M') + Math.abs(l.mate);
@@ -121,10 +220,12 @@ function fmtScore(l) {
 
 // ---------- rendering ----------
 
-let playMode = false;
-let sel = null;       // selected square name (click-to-move)
-let dragFrom = null;  // square currently being dragged
-let history = [];     // previous FENs in play mode, for undo
+let sel = null;           // selected square (click-to-move)
+let dragFrom = null;      // square currently being dragged
+let history = [];         // undo stack: { fen, lastMove }
+let future = [];          // redo stack
+let lastMove = null;      // { from, to } of the last move played on the panel
+let pendingPromo = null;  // { from, to, color } while the promotion picker is open
 
 function renderBoard() {
   const b = $('board');
@@ -133,10 +234,12 @@ function renderBoard() {
   const board = game.board(); // rank 8 first
   const hl = new Set();
   const first = lines[0] && lines[0].pv[0];
-  if (first && !playMode) { hl.add(first.slice(0, 2)); hl.add(first.slice(2, 4)); }
-  const targets = new Set();
-  if (playMode && sel) {
-    for (const m of game.moves({ square: sel, verbose: true })) targets.add(m.to);
+  if (first && !sel) { hl.add(first.slice(0, 2)); hl.add(first.slice(2, 4)); }
+  if (sel) hl.add(sel);
+  const last = new Set(lastMove ? [lastMove.from, lastMove.to] : []);
+  const targets = new Map(); // square -> true if it is a capture
+  if (sel) {
+    for (const m of legalMovesFrom(sel)) targets.set(m.to, !!m.captured || m.flags.includes('e'));
   }
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
@@ -145,7 +248,8 @@ function renderBoard() {
       const name = 'abcdefgh'[ff] + (8 - rr);
       const d = document.createElement('div');
       d.className = 'sq ' + ((rr + ff) % 2 === 0 ? 'light' : 'dark') +
-        (hl.has(name) || name === sel ? ' hl' : '') + (targets.has(name) ? (cell ? ' cap' : ' dot') : '');
+        (hl.has(name) ? ' hl' : last.has(name) ? ' last' : '') +
+        (targets.has(name) ? (targets.get(name) ? ' cap' : ' dot') : '');
       d.dataset.sq = name;
       if (cell && name !== dragFrom) {
         const img = document.createElement('img');
@@ -160,7 +264,9 @@ function renderBoard() {
   }
 }
 
-// ---------- play moves on the panel board ----------
+// ---------- moving pieces on the panel board (like an analysis board) ----------
+// Drag-and-drop or click-click, always on. Either side may move: if you pick up a piece that is not on the move,
+// the turn simply follows it (snapshots often guess the side to move, and a wrong guess must never lock the board).
 
 function squareAt(x, y) {
   const r = $('board').getBoundingClientRect();
@@ -171,33 +277,124 @@ function squareAt(x, y) {
   return 'abcdefgh'[f] + (rk + 1);
 }
 
-function tryMove(from, to) {
+// A position in which `color` is the side to move (en passant rights do not carry over a turn flip).
+function positionFor(color) {
+  if (color === game.turn()) return game;
+  const f = curFen.split(' ');
+  f[1] = color;
+  f[3] = '-';
+  try { return new Chess(f.join(' ')); } catch (e) { return null; }
+}
+
+function legalMovesFrom(sq) {
+  const piece = game && game.get(sq);
+  if (!piece) return [];
+  const g = positionFor(piece.color);
+  return g ? g.moves({ square: sq, verbose: true }) : [];
+}
+
+// Returns true (played), 'promo' (waiting for a promotion choice) or false (illegal).
+function tryMove(from, to, promotion) {
+  const piece = game.get(from);
+  if (!piece) return false;
+  const g = positionFor(piece.color);
+  if (!g) return false;
+  const cands = g.moves({ square: from, verbose: true }).filter((m) => m.to === to);
+  if (!cands.length) return false;
+  if (cands[0].promotion && !promotion) {
+    pendingPromo = { from, to, color: piece.color };
+    showPromo();
+    return 'promo';
+  }
   let m = null;
-  try { m = game.move({ from, to, promotion: 'q' }); } catch (e) { m = null; }
+  try { m = g.move({ from, to, promotion: promotion || undefined }); } catch (e) { m = null; }
   if (!m) return false;
-  history.push(curFen);
+  history.push({ fen: curFen, lastMove });
+  future = [];
   $('turn').value = 'auto';
-  setPosition(game.fen(), 'played on panel: ' + m.san);
+  setPosition(g.fen(), 'played on panel: ' + m.san, { lastMove: { from, to } });
+  if ($('auto').checked) {
+    // The page would overwrite your line on the next poll, so pause following until you press Snapshot.
+    $('auto').checked = false;
+    $('auto').onchange();
+    setStatus('Auto-follow paused while you play moves here. Press Snapshot to go back to the real position.');
+  }
   return true;
+}
+
+function showPromo() {
+  const box = $('promo');
+  box.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'promo-card';
+  const names = { q: 'Queen', r: 'Rook', b: 'Bishop', n: 'Knight' };
+  for (const t of ['q', 'r', 'b', 'n']) {
+    const btn = document.createElement('button');
+    btn.className = 'promo-btn';
+    btn.dataset.piece = t;
+    btn.title = 'Promote to ' + names[t];
+    const img = document.createElement('img');
+    img.src = `pieces/${pendingPromo.color}${t.toUpperCase()}.svg`;
+    img.draggable = false;
+    btn.appendChild(img);
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const p = pendingPromo;
+      hidePromo();
+      if (p) tryMove(p.from, p.to, t);
+    };
+    card.appendChild(btn);
+  }
+  box.appendChild(card);
+  box.hidden = false;
+}
+
+function hidePromo() {
+  pendingPromo = null;
+  const box = $('promo');
+  box.hidden = true;
+  box.innerHTML = '';
+  renderBoard();
+}
+
+function undoMove() {
+  const prev = history.pop();
+  if (!prev) return;
+  future.push({ fen: curFen, lastMove });
+  $('turn').value = 'auto';
+  setPosition(prev.fen, 'undo', { lastMove: prev.lastMove });
+}
+
+function redoMove() {
+  const next = future.pop();
+  if (!next) return;
+  history.push({ fen: curFen, lastMove });
+  $('turn').value = 'auto';
+  setPosition(next.fen, 'redo', { lastMove: next.lastMove });
 }
 
 let ghost = null;
 $('board').addEventListener('pointerdown', (e) => {
-  if (!playMode || !game || e.button !== 0) return;
+  if (!game || e.button !== 0 || pendingPromo) return;
   const sq = squareAt(e.clientX, e.clientY);
   if (!sq) return;
+  if (sel && sel !== sq) {
+    const r = tryMove(sel, sq);
+    if (r === true) { sel = null; return; }
+    if (r === 'promo') { sel = null; renderBoard(); return; }
+  }
   const piece = game.get(sq);
-  if (sel && sel !== sq && tryMove(sel, sq)) { sel = null; return; }
-  if (piece && piece.color === game.turn()) {
+  if (piece) {
     sel = sq;
     dragFrom = sq;
     ghost = document.createElement('img');
     ghost.src = `pieces/${piece.color}${piece.type.toUpperCase()}.svg`;
     const size = $('board').getBoundingClientRect().width / 8;
     ghost.style.cssText = `position:fixed;width:${size}px;height:${size}px;pointer-events:none;z-index:10;` +
-      `left:${e.clientX - size / 2}px;top:${e.clientY - size / 2}px;`;
+      `left:${e.clientX - size / 2}px;top:${e.clientY - size / 2}px;filter:drop-shadow(0 6px 10px rgba(0,0,0,.45));` +
+      'transform:scale(1.12);';
     document.body.appendChild(ghost);
-    $('board').setPointerCapture(e.pointerId);
+    try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* synthetic event */ }
   } else {
     sel = null;
   }
@@ -214,11 +411,23 @@ $('board').addEventListener('pointerup', (e) => {
   const from = dragFrom;
   ghost.remove(); ghost = null; dragFrom = null;
   const to = squareAt(e.clientX, e.clientY);
-  if (to && to !== from && tryMove(from, to)) { sel = null; return; }
-  renderBoard(); // dropped on same square (keeps selection for click-click) or illegal
+  if (to && to !== from) {
+    const r = tryMove(from, to);
+    if (r === true) { sel = null; return; }
+    if (r === 'promo') { sel = null; renderBoard(); return; }
+  }
+  renderBoard(); // dropped on the same square (keeps the selection for click-click) or illegal
 });
 $('board').addEventListener('pointercancel', () => {
   if (ghost) { ghost.remove(); ghost = null; dragFrom = null; renderBoard(); }
+});
+
+// Keyboard: ← undo, → redo, Esc deselect / cancel promotion (ignored while typing in a field).
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); undoMove(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); redoMove(); }
+  else if (e.key === 'Escape') { if (pendingPromo) hidePromo(); else { sel = null; renderBoard(); } }
 });
 
 function sqCenter(name) {
@@ -289,7 +498,7 @@ function setStatus(msg, err = false) {
 
 // ---------- flow ----------
 
-function setPosition(rawFen, src) {
+function setPosition(rawFen, src, opts = {}) {
   let fen;
   try {
     fen = applyTurnOverride(normalizeFen(rawFen));
@@ -300,6 +509,8 @@ function setPosition(rawFen, src) {
   }
   curFen = fen;
   sel = null;
+  lastMove = opts.lastMove || null;
+  if (pendingPromo) { pendingPromo = null; $('promo').hidden = true; $('promo').innerHTML = ''; }
   $('fen').value = fen;
   setStatus(src ? 'Source: ' + src : '');
   lines = [];
@@ -315,42 +526,46 @@ function askSnapshot(auto) {
 
 window.addEventListener('message', (e) => {
   const d = e.data || {};
+  if (d.type === 'toggleCompact') { setCompact(!compact); return; }
   if (d.type !== 'snapshot') return;
   if (!d.fen) { if (!d.auto) setStatus('No board found on this page. Paste a FEN instead.', true); return; }
   if (d.auto) {
     if (d.fen === lastAutoFen) return;
     lastAutoFen = d.fen;
   }
+  history = []; future = [];
   setPosition(d.fen, d.src);
 });
 
-$('snap').onclick = () => { lastAutoFen = null; history = []; askSnapshot(false); };
-$('play').onchange = () => {
-  playMode = $('play').checked;
-  sel = null;
-  document.body.classList.toggle('play', playMode);
-  if (playMode && $('auto').checked) { $('auto').checked = false; $('auto').onchange(); }
-  renderBoard();
-};
-$('undo').onclick = () => {
-  const prev = history.pop();
-  if (prev) { $('turn').value = 'auto'; setPosition(prev, 'undo'); }
-};
+$('snap').onclick = () => { lastAutoFen = null; history = []; future = []; askSnapshot(false); };
+$('undo').onclick = undoMove;
+$('redo').onclick = redoMove;
 $('go').onclick = () => setPosition($('fen').value);
 $('fen').addEventListener('keydown', (e) => { if (e.key === 'Enter') setPosition($('fen').value); });
 $('flip').onclick = () => { flipped = !flipped; renderBoard(); renderAnalysis(); };
-$('close').onclick = () => parent.postMessage({ type: 'close' }, '*');
+// The header (host shell) owns Hide/Minimize now; keep the hook so an older panel.html with its own button still works.
+if ($('close')) $('close').onclick = () => parent.postMessage({ type: 'close' }, '*');
 $('turn').onchange = () => curFen && setPosition(curFen);
 $('multipv').onchange = () => curFen && setPosition(curFen);
 $('auto').onchange = () => {
   clearInterval(autoTimer);
   lastAutoFen = null;
   if ($('auto').checked) {
-    if (playMode) { $('play').checked = false; $('play').onchange(); }
     askSnapshot(true);
     autoTimer = setInterval(() => askSnapshot(true), 800);
   }
 };
+
+$('openLichess').onclick = () => curFen && openExternal(lichessUrl(curFen, flipped));
+$('openChesscom').onclick = () => curFen && openExternal(chesscomUrl(curFen, flipped));
+$('copyFen').onclick = async () => {
+  if (!curFen) return;
+  const ok = await copyText(curFen);
+  setStatus(ok ? 'FEN copied to the clipboard' : 'Copy was blocked by the browser', !ok);
+};
+$('glass').onchange = () => { saveGlassMode($('glass').value); applyGlass(); };
+loadGlassMode().then((mode) => { $('glass').value = mode; applyGlass(); });
+loadCompact().then((on) => { compact = on; applyCompact(); });
 
 setPosition(START);
 
