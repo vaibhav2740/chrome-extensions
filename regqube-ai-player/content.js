@@ -937,11 +937,12 @@
   // ---------------------------------------------------------------------------
   function setInputValue(el, value) {
     el.focus({ preventScroll: true });
+    const text = typeof value === "string" ? value.toLowerCase() : "";
     // The prototype setter bypasses framework value interceptors so the game's input handler sees a change.
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-    if (setter) setter.call(el, value);
-    else el.value = value;
-    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, composed: true, inputType: value ? "insertText" : "deleteContent", data: value || null }));
+    if (setter) setter.call(el, text);
+    else el.value = text;
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, composed: true, inputType: text ? "insertText" : "deleteContent", data: text || null }));
   }
 
   function pressEnter(input) {
@@ -966,6 +967,7 @@
   // respecting React 18 synthetic input events, panic retry acceleration, and fuse protection.
   async function typeHuman(input, word, { wpm = 100, isRetry = false, turnStartTime = 0, stillMine, epoch } = {}) {
     if (!input || !word) return false;
+    const text = String(word).toLowerCase();
     input.focus({ preventScroll: true });
 
     // Base delay per character from WPM formula: (60,000 ms / (WPM * 5 chars)) = 12,000 / WPM
@@ -978,22 +980,22 @@
     let typedSoFar = "";
     let prevChar = "";
 
-    for (let i = 0; i < word.length; i++) {
+    for (let i = 0; i < text.length; i++) {
       if (S.tornDown || S.epoch !== epoch) return false;
       if (stillMine && !stillMine()) return false;
 
       // Emergency fuse protection: if the turn has dragged on past 3.2s, flush remaining characters instantly
       if (turnStartTime && (now() - turnStartTime > 3200)) {
-        if (setter) setter.call(input, word);
-        else input.value = word;
+        if (setter) setter.call(input, text);
+        else input.value = text;
         input.dispatchEvent(new InputEvent("input", {
           bubbles: true, cancelable: true, composed: true,
-          inputType: "insertText", data: word.slice(i),
+          inputType: "insertText", data: text.slice(i),
         }));
         return true;
       }
 
-      const char = word[i];
+      const char = text[i];
       typedSoFar += char;
 
       // 1. Dispatch keydown with proper W3C code mapping
@@ -1082,10 +1084,11 @@
   async function submitWord(word, epoch, { attempt = 0, turnStartTime = 0, stillMine } = {}) {
     const input = getGameInput();
     if (!input) return "lost";
+    const wordToType = String(word || "").toLowerCase();
     const key = norm(word);
 
     if (S.humanTyping) {
-      const ok = await typeHuman(input, word, {
+      const ok = await typeHuman(input, wordToType, {
         wpm: S.typingWpm || 100,
         isRetry: attempt > 0,
         turnStartTime,
@@ -1094,7 +1097,7 @@
       });
       if (!ok) return "lost";
     } else {
-      setInputValue(input, word);
+      setInputValue(input, wordToType);
     }
 
     const btn = findSendButton(input);
@@ -1233,9 +1236,10 @@
           if (!word) break;
         }
 
+        const lower = word.toLowerCase();
         const modeStr = S.humanTyping ? ` (${attempt > 0 ? "turbo" : `${S.typingWpm} WPM`})` : "";
-        setStatus(`Typing "${word}"${modeStr}…`, COLORS.act);
-        typedWord = word;
+        setStatus(`Typing "${lower}"${modeStr}…`, COLORS.act);
+        typedWord = lower;
         const outcome = await submitWord(word, epoch, { attempt, turnStartTime, stillMine });
         const k = norm(word);
         S.answerCount++;
@@ -1244,17 +1248,17 @@
           bumpGameStat("accepted");
           markUsed(k, "accepted by game (our turn)");
           rememberGood(qkey, word);
-          log(`"${word}" accepted`);
-          setStatus(`Accepted: "${word}"`, COLORS.ok);
+          log(`"${lower}" accepted`);
+          setStatus(`Accepted: "${lower}"`, COLORS.ok);
           turn.handled = true;
-          result = { ok: true, typed: word };
+          result = { ok: true, typed: lower };
           break;
         }
         if (outcome === "rejected") {
           bumpGameStat("rejected");
           markUsed(k, "rejected by game (our turn)");
           rememberBad(qkey, word);
-          log(`"${word}" rejected — trying next`);
+          log(`"${lower}" rejected — trying next`);
           // If the pool is completely empty in sudden death, check if this rejected word has a plausible formatting variant
           // (e.g. "Spider-Man" -> "Spiderman", "St. Louis" -> "Saint Louis") to try before slow network fallback.
           if (S.pool.length === 0) {
