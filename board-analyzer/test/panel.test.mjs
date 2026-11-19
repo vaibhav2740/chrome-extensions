@@ -36,6 +36,9 @@ const storeLocal = { glassMode: "off" }; // user previously chose Basic
 Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (t) => { copied = t; } }, deviceMemory: 8, hardwareConcurrency: 8 }, configurable: true, writable: true });
 globalThis.chrome = { storage: { local: { get: async () => ({ ...storeLocal }), set: async (o) => { Object.assign(storeLocal, o); } } } };
 const $ = (id) => w.document.getElementById(id);
+// Snapshot now asks the host with an id and waits for the answer carrying the same id.
+const lastAsk = () => posted.filter((m) => m.type === "snapshot" && m.auto === false).at(-1);
+const snap = async (fen, src = "t") => { $("snap").click(); const ask = lastAsk(); w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen, src, auto: false, id: ask.id } })); await sleep(10); return ask; };
 
 console.log("A1. panel boots on the redesigned markup");
 await import(`file://${COPY}/panel.js?t=${Date.now()}`);
@@ -50,6 +53,8 @@ const wk = FakeWorker.last;
 wk.emit("info depth 14 seldepth 18 multipv 1 score cp 31 nodes 1 pv e2e4 e7e5 g1f3 b8c6");
 wk.emit("info depth 14 multipv 2 score cp 20 pv d2d4 d7d5 c2c4");
 wk.emit("info depth 14 multipv 3 score cp -12 pv c2c4 e7e5");
+check("engine lines are drawn once per frame, not once per line", w.document.querySelectorAll("#lines .line").length === 0);
+await sleep(40);
 check("best move in SAN + eval + depth", $("bestMove").textContent === "e4" && $("bestEval").textContent === "+0.31" && $("depth").textContent === "depth 14", `${$("bestMove").textContent}|${$("bestEval").textContent}|${$("depth").textContent}`);
 const lines = [...w.document.querySelectorAll("#lines .line")];
 check("3 lines with sign-colored scores", lines.length === 3 && lines[0].querySelector("b").className === "pos" && lines[2].querySelector("b").className === "neg", lines.map((l) => l.innerHTML).join(" || "));
@@ -81,11 +86,24 @@ $("turn").value = "auto"; $("turn").onchange();
 check("panel no longer has a duplicate close button (header owns Hide/Minimize)", !$("close"));
 check("the Play toggle is gone: moving is always on", !$("play"));
 $("snap").click();
-check("snapshot requests a read from the host", posted.some((m) => m.type === "snapshot" && m.auto === false));
-w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen: "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1", src: "test source" } }));
+const ask = lastAsk();
+check("snapshot requests a read from the host, with an id to match the answer", !!ask && typeof ask.id === "number");
+check("the button shows it is working and offers to cancel", $("snap").classList.contains("busy") && /Reading/.test($("snapLabel").textContent) && /cancel/i.test($("snap").title));
+w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen: "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1", src: "test source", auto: false, id: ask.id } }));
+await sleep(10);
 check("snapshot reply loads the position", $("fen").value.startsWith("4k3/8/8/8/8/8/4P3/4K3") && $("status").textContent === "Source: test source", $("status").textContent);
-w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen: null, src: "none", auto: false } }));
-check("missing board is reported", $("status").className === "err" && /No board found/.test($("status").textContent));
+check("and the button is back to normal", !$("snap").classList.contains("busy") && $("snapLabel").textContent === "Snapshot");
+$("snap").click();
+const ask2 = lastAsk();
+const capsBefore = posted.filter((m) => m.type === "capture").length;
+w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen: null, src: "none", auto: false, id: ask2.id } }));
+await sleep(10);
+check("no board on the page: it takes a picture of the screen instead (no dead end)", posted.filter((m) => m.type === "capture").length === capsBefore + 1 && /Capturing/.test($("snapLabel").textContent));
+const cap = posted.filter((m) => m.type === "capture").at(-1);
+w.dispatchEvent(new w.MessageEvent("message", { data: { type: "captured", id: cap.id, ok: false, error: "Click the icon first" } }));
+await sleep(10);
+check("a refused capture is explained under the board", !$("scanNote").hidden && $("scanNote").classList.contains("err") && /Click the icon/.test($("noteText").textContent) && !$("snap").classList.contains("busy"));
+$("noteClose").click();
 
 console.log("A5. moving pieces (always on, like an analysis board)");
 $("fen").value = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"; $("go").click();
@@ -119,8 +137,7 @@ check("Black pieces move even when it is White's turn, and the turn becomes Whit
 
 console.log("   undo / redo");
 $("fen").value = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"; $("go").click(); await sleep(20);
-$("snap").click();
-w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", src: "t" } }));
+await snap("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 drag("e2", "e4"); await sleep(20); drag("e7", "e5"); await sleep(20);
 check("two moves played", fenNow().startsWith("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w"), fenNow());
 $("undo").click(); await sleep(20);
@@ -172,7 +189,8 @@ check("and the user is told why", /Auto-follow paused/.test($("status").textCont
 const pollsAfter = posted.filter((m) => m.type === "snapshot" && m.auto === true).length;
 await sleep(1000);
 check("polling really stopped (your line is not overwritten)", posted.filter((m) => m.type === "snapshot" && m.auto === true).length === pollsAfter);
-check("a fresh Snapshot resets the move history", (() => { $("snap").click(); w.dispatchEvent(new w.MessageEvent("message", { data: { type: "snapshot", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", src: "t" } })); const b = fenNow(); $("undo").click(); return fenNow() === b; })());
+await snap("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+check("a fresh Snapshot resets the move history", (() => { const b = fenNow(); $("undo").click(); return fenNow() === b; })());
 
 console.log("   compact view");
 const layouts = () => posted.filter((m) => m.type === "layout");

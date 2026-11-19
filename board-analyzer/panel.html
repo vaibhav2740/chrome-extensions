@@ -6,144 +6,117 @@
 </head>
 <body>
   <div id="main">
-  <div id="boardWrap">
-    <div id="board"></div>
-    <svg id="arrows" viewBox="0 0 8 8"></svg>
-    <div id="promo" hidden></div>
-    <div id="evalbar"><div id="evalfill"></div></div>
-  </div>
+    <div id="boardWrap">
+      <div id="board"></div>
+      <svg id="arrows" viewBox="0 0 8 8"></svg>
+      <div id="promo" hidden></div>
+      <div id="evalbar"><div id="evalfill"></div></div>
+    </div>
 
-  <div id="best">
-    <span id="bestMove">—</span>
-    <span id="bestEval"></span>
-    <span id="depth"></span>
-  </div>
-  <div id="lines"></div>
-
-  <div class="row">
-    <button id="snap" class="primary" title="Read the board currently shown on the page">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 5.2 4H3.5A1.5 1.5 0 0 0 2 5.5v6A1.5 1.5 0 0 0 3.5 13h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 4h-1.7L10 2.5H6zM8 11a2.7 2.7 0 1 1 0-5.4A2.7 2.7 0 0 1 8 11zm0-1.4a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z"/></svg>
-      Snapshot
-    </button>
-    <button id="scanBtn" class="icon" title="Scan a board from a picture: a video, a screenshot, a photo" aria-label="Scan a board from a picture">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h4v1.5H3.5V6H2V2zm12 0v4h-1.5V3.5H10V2h4zM2 14v-4h1.5v2.5H6V14H2zm12 0h-4v-1.5h2.5V10H14v4zM2.5 7.25h11v1.5h-11z"/></svg>
-    </button>
-    <button id="undo" class="icon" title="Undo (←)" aria-label="Undo">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3.2 2.6 7l3.9 3.8V8.4c2.9 0 4.6.8 5.9 3.1-.1-3.4-2.2-5.7-5.9-5.9V3.2z"/></svg>
-    </button>
-    <button id="redo" class="icon" title="Redo (→)" aria-label="Redo">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.2 13.4 7l-3.9 3.8V8.4c-2.9 0-4.6.8-5.9 3.1.1-3.4 2.2-5.7 5.9-5.9V3.2z"/></svg>
-    </button>
-    <button id="flip" class="icon" title="Flip board" aria-label="Flip board">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.2 2 2 5.2h2.2V12h1.9V5.2h2.2L5.2 2zm5.6 12L14 10.8h-2.2V4h-1.9v6.8H7.7L10.8 14z"/></svg>
-    </button>
-  </div>
-
-  <div class="row toggles">
-    <label class="chip"><input type="checkbox" id="auto"><span>Auto-follow</span></label>
-  </div>
-
-  <div class="row fenrow">
-    <input id="fen" spellcheck="false" placeholder="Paste FEN here…">
-    <button id="go" class="primary">Analyze</button>
-  </div>
-
-  <div class="row links">
-    <button id="openLichess" class="link" title="Open this position on the Lichess analysis board">
-      Lichess <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7H12V5.1L7.6 9.5 6.5 8.4 10.9 4H9V2.5zM3.5 4H7v1.5H4v6.5h6.5V9H12v4.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5z"/></svg>
-    </button>
-    <button id="openChesscom" class="link" title="Open this position on the Chess.com analysis board">
-      Chess.com <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7H12V5.1L7.6 9.5 6.5 8.4 10.9 4H9V2.5zM3.5 4H7v1.5H4v6.5h6.5V9H12v4.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5z"/></svg>
-    </button>
-    <button id="copyFen" class="link" title="Copy this position as FEN">Copy FEN</button>
-  </div>
-
-  <div class="row small">
-    <label>Turn
-      <select id="turn"><option value="auto">auto</option><option value="w">white</option><option value="b">black</option></select>
-    </label>
-    <label>Depth <input id="depthMax" type="number" min="8" max="30" value="20"></label>
-    <label>Lines <select id="multipv"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
-    <label title="Glass uses a blur effect; Basic is a solid panel that is lighter on weak devices. Auto picks for you.">Style
-      <select id="glass"><option value="auto">Auto</option><option value="on">Glass</option><option value="off">Basic</option></select>
-    </label>
-  </div>
-  <div id="status"></div>
-  </div>
-
-  <!-- Scan a board from a picture -->
-  <section id="scan" hidden aria-label="Scan a board">
-    <div class="scan-head">
-      <button id="scanBack" class="icon" title="Back to the board" aria-label="Back to the board">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 2.6 4.4 8l5.4 5.4 1.1-1.1L6.6 8l4.3-4.3-1.1-1.1z"/></svg>
+    <div id="scanNote" class="note" hidden role="status">
+      <span id="noteText"></span>
+      <button id="noteClose" class="note-x" aria-label="Dismiss">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.2 3 8 6.8 11.8 3 13 4.2 9.2 8l3.8 3.8-1.2 1.2L8 9.2 4.2 13 3 11.8 6.8 8 3 4.2z"/></svg>
       </button>
-      <div class="scan-title">Scan a board</div>
+      <span id="noteActions" class="note-actions"></span>
     </div>
 
-    <div id="scanPick">
-      <div id="scanDrop" class="dropzone">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h4v1.5H3.5V6H2V2zm12 0v4h-1.5V3.5H10V2h4zM2 14v-4h1.5v2.5H6V14H2zm12 0h-4v-1.5h2.5V10H14v4zM2.5 7.25h11v1.5h-11z"/></svg>
-        <div class="dz-title">Drop, paste or choose a picture</div>
-        <div class="dz-sub">Press Ctrl+V (⌘V on a Mac) to paste a screenshot</div>
-      </div>
-      <div class="row">
-        <button id="scanCapture" class="primary" title="Take a picture of the page you are on">Capture this tab</button>
-        <button id="scanFile">Choose file…</button>
-      </div>
-      <input id="scanFileInput" type="file" accept="image/*" hidden>
-      <p id="scanPickMsg" class="scan-note" role="status"></p>
-      <p class="scan-note">Works on videos, articles, PDFs and chess sites. Reading happens on this device: the picture is never uploaded.</p>
-      <p id="scanLowMem" class="scan-note warn" hidden>This device has little memory, so the first read may be slow. Close other tabs if it struggles.</p>
+    <div id="best">
+      <span id="bestMove">—</span>
+      <span id="bestEval"></span>
+      <span id="depth"></span>
+    </div>
+    <div id="lines"></div>
+
+    <div class="row actions">
+      <button id="snap" class="primary" title="Read the position: from the page on chess.com and lichess, from the screen anywhere else. Shift+click always reads the screen.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 5.2 4H3.5A1.5 1.5 0 0 0 2 5.5v6A1.5 1.5 0 0 0 3.5 13h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 4h-1.7L10 2.5H6zM8 11a2.7 2.7 0 1 1 0-5.4A2.7 2.7 0 0 1 8 11zm0-1.4a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z"/></svg>
+        <span id="snapLabel">Snapshot</span>
+      </button>
+      <button id="editBtn" class="icon" title="Edit the position: place, move or remove pieces" aria-label="Edit the position">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.9 1.9a1.6 1.6 0 0 1 2.2 2.2l-.9.9-2.2-2.2.9-.9zM9.9 4 2.5 11.4v2.1h2.1L12 6.1 9.9 4z"/></svg>
+      </button>
+      <button id="pictureBtn" class="icon" title="Read a picture instead (you can also paste or drop one anywhere on this panel)" aria-label="Read a picture from a file">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v7A1.5 1.5 0 0 0 2.5 13h11a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 13.5 3h-11zm0 1.5h11v4.6l-2.8-2.8a.75.75 0 0 0-1.06 0L6.6 10.1 5.4 8.9a.75.75 0 0 0-1.06 0L2.5 10.7V4.5zM11 5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>
+      </button>
+      <input id="pictureInput" type="file" accept="image/*" hidden>
     </div>
 
-    <div id="scanPic" hidden>
-      <div class="picstage"><div id="picWrap"><img id="picImg" alt="The picture to read" draggable="false"><div id="picBox" hidden></div></div></div>
-      <p id="picHint" class="scan-note"></p>
-      <div class="row">
-        <button id="scanRetake">Other picture</button>
-        <button id="scanRead" class="primary">Read position</button>
-      </div>
+    <div class="row toggles">
+      <label class="chip"><input type="checkbox" id="auto"><span>Auto-follow</span></label>
+      <button id="undo" class="icon" title="Undo (←)" aria-label="Undo">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3.2 2.6 7l3.9 3.8V8.4c2.9 0 4.6.8 5.9 3.1-.1-3.4-2.2-5.7-5.9-5.9V3.2z"/></svg>
+      </button>
+      <button id="redo" class="icon" title="Redo (→)" aria-label="Redo">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 3.2 13.4 7l-3.9 3.8V8.4c-2.9 0-4.6.8-5.9 3.1.1-3.4 2.2-5.7 5.9-5.9V3.2z"/></svg>
+      </button>
+      <button id="flip" class="icon" title="Flip board" aria-label="Flip board">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.2 2 2 5.2h2.2V12h1.9V5.2h2.2L5.2 2zm5.6 12L14 10.8h-2.2V4h-1.9v6.8H7.7L10.8 14z"/></svg>
+      </button>
     </div>
 
-    <div id="scanBusy" hidden>
-      <div id="scanBusySpin" class="spinner" aria-hidden="true"></div>
-      <div id="busyText" class="scan-note" role="status">Loading the board reader…</div>
-      <div class="row" id="scanBusyErr" hidden>
-        <button id="scanBusyBack">Back</button>
-        <button id="scanBusyRetry" class="primary">Try again</button>
-      </div>
-      <div class="row"><button id="scanBusyCancel">Cancel</button></div>
+    <div class="row fenrow">
+      <input id="fen" spellcheck="false" placeholder="Paste FEN here…">
+      <button id="go" class="primary">Analyze</button>
     </div>
 
-    <div id="scanResult" hidden>
-      <div id="sBoardWrap"><div id="sBoard"></div></div>
-      <div id="sPalette" class="palette" role="toolbar" aria-label="Pieces"></div>
+    <div class="row links">
+      <button id="openLichess" class="link" title="Open this position on the Lichess analysis board">
+        Lichess <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7H12V5.1L7.6 9.5 6.5 8.4 10.9 4H9V2.5zM3.5 4H7v1.5H4v6.5h6.5V9H12v4.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5z"/></svg>
+      </button>
+      <button id="openChesscom" class="link" title="Open this position on the Chess.com analysis board">
+        Chess.com <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7H12V5.1L7.6 9.5 6.5 8.4 10.9 4H9V2.5zM3.5 4H7v1.5H4v6.5h6.5V9H12v4.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5z"/></svg>
+      </button>
+      <button id="copyFen" class="link" title="Copy this position as FEN">Copy FEN</button>
+    </div>
+
+    <div class="row small">
+      <label>Turn
+        <select id="turn"><option value="auto">auto</option><option value="w">white</option><option value="b">black</option></select>
+      </label>
+      <label>Depth <input id="depthMax" type="number" min="8" max="30" value="20"></label>
+      <label>Lines <select id="multipv"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
+      <label title="Glass uses a blur effect; Basic is a solid panel that is lighter on weak devices. Auto picks for you.">Style
+        <select id="glass"><option value="auto">Auto</option><option value="on">Glass</option><option value="off">Basic</option></select>
+      </label>
+    </div>
+    <div id="status"></div>
+
+    <!-- Edit the position: the board above becomes editable, these controls replace everything below it -->
+    <div id="editor">
+      <div id="ePalette" class="palette" role="toolbar" aria-label="Pieces"></div>
       <div class="row segrow">
-        <div class="seglabel">Bottom of the picture
-          <div class="seg" role="radiogroup" aria-label="Side at the bottom of the picture">
-            <label><input type="radio" name="sBottom" value="white"><span>White</span></label>
-            <label><input type="radio" name="sBottom" value="black"><span>Black</span></label>
-          </div>
-        </div>
         <div class="seglabel">To move
           <div class="seg" role="radiogroup" aria-label="Side to move">
-            <label><input type="radio" name="sTurn" value="w"><span>White</span></label>
-            <label><input type="radio" name="sTurn" value="b"><span>Black</span></label>
+            <label><input type="radio" name="eTurn" value="w"><span>White</span></label>
+            <label><input type="radio" name="eTurn" value="b"><span>Black</span></label>
           </div>
         </div>
+        <button id="eFlip" class="link" title="Turn the board around">Flip board</button>
       </div>
       <div class="row castle" role="group" aria-label="Castling rights">
-        <label class="chip mini" title="White can castle kingside"><input type="checkbox" id="sCK"><span>W O-O</span></label>
-        <label class="chip mini" title="White can castle queenside"><input type="checkbox" id="sCQ"><span>W O-O-O</span></label>
-        <label class="chip mini" title="Black can castle kingside"><input type="checkbox" id="sCk"><span>B O-O</span></label>
-        <label class="chip mini" title="Black can castle queenside"><input type="checkbox" id="sCq"><span>B O-O-O</span></label>
+        <label class="chip mini" title="White can castle kingside"><input type="checkbox" id="eCK"><span>W O-O</span></label>
+        <label class="chip mini" title="White can castle queenside"><input type="checkbox" id="eCQ"><span>W O-O-O</span></label>
+        <label class="chip mini" title="Black can castle kingside"><input type="checkbox" id="eCk"><span>B O-O</span></label>
+        <label class="chip mini" title="Black can castle queenside"><input type="checkbox" id="eCq"><span>B O-O-O</span></label>
       </div>
-      <p id="sNote" class="scan-note" role="status"></p>
+      <p id="eNote" class="edit-note" role="status"></p>
       <div class="row">
-        <button id="sBackToPic" title="Back to the picture">Picture</button>
-        <button id="sClear" title="Remove every piece">Clear</button>
-        <button id="sAnalyze" class="primary">Analyze</button>
+        <button id="eCancel">Cancel</button>
+        <button id="eClear" title="Remove every piece">Clear</button>
+        <button id="eDone" class="primary">Done</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Select the board: draw a box on the last picture and read only that part -->
+  <section id="crop" aria-label="Select the board">
+    <div class="sheet-head"><div class="sheet-title">Select the board</div></div>
+    <div class="picstage"><div id="cropWrap"><img id="cropImg" alt="The picture to read" draggable="false"><div id="cropBox" hidden></div></div></div>
+    <p id="cropHint" class="edit-note"></p>
+    <div class="row">
+      <button id="cropCancel">Cancel</button>
+      <button id="cropRead" class="primary">Read</button>
     </div>
   </section>
 

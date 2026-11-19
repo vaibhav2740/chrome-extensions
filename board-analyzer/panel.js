@@ -1,6 +1,16 @@
 import { Chess } from './lib/chess.js';
-import { initScanUI } from './scan-ui.js';
+import { drawBoard, gridFromGame, pieceSrc, squareFromPoint, squareName, startGhost } from './board-view.js';
+import { checkPosition, createEditor, fenFrom, guessTurn, homeCastling } from './editor.js';
+import { createCropSheet } from './crop-ui.js';
+import { createScanFlow } from './scan-flow.js';
+import { createEngineClient } from './engine-client.js';
+import { chesscomUrl, copyText, lichessUrl, openExternal } from './links.js';
+import { fmtScore, normalizeFen, pvToSan, scoreClass } from './notation.js';
+import { effectiveGlass, loadCompact, loadGlassMode, saveCompact, saveGlassMode } from './settings.js';
 import { createScanner } from './scanner/client.js';
+import { rotateGrid } from './scanner/core.js';
+
+export { chesscomUrl, lichessUrl }; // handy for tests and other pages
 
 const $ = (id) => document.getElementById(id);
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -8,97 +18,27 @@ const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 let flipped = false;
 let curFen = null;
 let game = null;
-let lines = []; // by multipv index: {cp, mate, depth, pv:[uci...]}
 let lastAutoFen = null;
 let autoTimer = null;
 
 // ---------- engine ----------
 
-let worker = null;
-let engineReady = false;
-let pending = null; // search request waiting for engine to be ready/synced
-let searchId = 0;
+const engine = createEngineClient({
+  getSettings: () => ({ multipv: $('multipv').value, depth: Math.max(8, Math.min(30, +$('depthMax').value || 20)) }),
+  onLines: scheduleAnalysisRender,
+  onError: (message) => setStatus(message, true),
+});
 
-function startEngine() {
-  worker = new Worker(new URL('./engine/stockfish-19-lite-single.js', import.meta.url));
-  worker.onmessage = (e) => onEngine(String(e.data));
-  worker.onerror = (e) => setStatus('Engine error: ' + (e.message || 'failed to load'), true);
-  worker.postMessage('uci');
+// The engine reports several lines per second; draw at most once per frame.
+let renderQueued = false;
+function scheduleAnalysisRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  const run = () => { renderQueued = false; renderAnalysis(); };
+  if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(run); else setTimeout(run, 16);
 }
 
-function onEngine(line) {
-  if (line === 'uciok') {
-    worker.postMessage('setoption name Threads value 1');
-    worker.postMessage('setoption name Hash value 64');
-    worker.postMessage('isready');
-  } else if (line === 'readyok') {
-    engineReady = true;
-    if (pending) { const p = pending; pending = null; runSearch(p); }
-  } else if (engineReady && line.startsWith('info') && line.includes(' pv ')) {
-    parseInfo(line);
-  }
-}
-
-function parseInfo(line) {
-  const t = line.split(' ');
-  const get = (k) => { const i = t.indexOf(k); return i >= 0 ? t[i + 1] : null; };
-  const multipv = +(get('multipv') || 1);
-  const depth = +get('depth');
-  const si = t.indexOf('score');
-  if (si < 0) return;
-  const kind = t[si + 1], val = +t[si + 2];
-  const pv = t.slice(t.indexOf('pv') + 1);
-  // Stockfish scores are from the side to move; convert to white's perspective.
-  const sign = game.turn() === 'w' ? 1 : -1;
-  lines[multipv - 1] = { cp: kind === 'cp' ? val * sign : null, mate: kind === 'mate' ? val * sign : null, depth, pv };
-  renderAnalysis();
-}
-
-function requestSearch(fen) {
-  const req = { fen, id: ++searchId };
-  lines = [];
-  renderAnalysis();
-  if (!worker) startEngine();
-  if (!engineReady) { pending = req; return; }
-  // stop any running search, then wait for readyok so stale output is flushed
-  engineReady = false;
-  pending = req;
-  worker.postMessage('stop');
-  worker.postMessage('isready');
-}
-
-function runSearch(req) {
-  if (req.id !== searchId) return;
-  worker.postMessage('setoption name MultiPV value ' + $('multipv').value);
-  worker.postMessage('position fen ' + req.fen);
-  worker.postMessage('go depth ' + Math.max(8, Math.min(30, +$('depthMax').value || 20)));
-}
-
-// ---------- chess helpers ----------
-
-function pvToSan(fen, pv, max = 7) {
-  const g = new Chess(fen);
-  const out = [];
-  const startNum = +fen.split(' ')[5] || 1;
-  let white = g.turn() === 'w';
-  let n = startNum;
-  for (const uci of pv.slice(0, max)) {
-    let m;
-    try { m = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); } catch (e) { break; }
-    if (!m) break;
-    out.push((white ? `${n}.` : out.length === 0 ? `${n}…` : '') + m.san);
-    if (!white) n++;
-    white = !white;
-  }
-  return out.join(' ');
-}
-
-function normalizeFen(raw) {
-  const f = raw.trim().replace(/\s+/g, ' ').split(' ');
-  const defaults = ['w', '-', '-', '0', '1'];
-  while (f.length < 6) f.push(defaults[f.length - 1]);
-  return f.join(' ');
-}
+// ---------- turn override ----------
 
 function applyTurnOverride(fen) {
   const o = $('turn').value;
@@ -107,79 +47,6 @@ function applyTurnOverride(fen) {
   f[1] = o;
   f[3] = '-';
   return f.join(' ');
-}
-
-function scoreClass(l) {
-  const v = l.mate != null ? l.mate : l.cp;
-  return v > 0 ? 'pos' : v < 0 ? 'neg' : '';
-}
-
-// ---------- open this position elsewhere ----------
-
-// Lichess takes the FEN in the path with spaces as underscores; ?color=black shows the board from Black's side.
-export function lichessUrl(fen, flippedView) {
-  return 'https://lichess.org/analysis/' + fen.trim().replace(/\s+/g, '_') + (flippedView ? '?color=black' : '');
-}
-
-export function chesscomUrl(fen, flippedView) {
-  return 'https://www.chess.com/analysis?fen=' + encodeURIComponent(fen.trim()) + '&flip=' + (flippedView ? 'true' : 'false');
-}
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch (e) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
-    document.body.appendChild(ta);
-    ta.select();
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (err) { /* blocked */ }
-    ta.remove();
-    return ok;
-  }
-}
-
-function openExternal(url) {
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
-
-// ---------- glass vs basic style ----------
-// Backdrop blur is cheap on most machines but costly on weak GPUs, especially over playing video, so it is a setting.
-// Auto turns it off for "reduce transparency" users and very low-end devices.
-function effectiveGlass(mode) {
-  if (mode === 'on') return true;
-  if (mode === 'off') return false;
-  try {
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-transparency: reduce)').matches) return false;
-    if (navigator.deviceMemory && navigator.deviceMemory <= 2) return false;
-    if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) return false;
-  } catch (e) { /* unknown: assume capable */ }
-  return true;
-}
-
-const hasChromeStorage = () => typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
-
-async function loadGlassMode() {
-  try {
-    if (hasChromeStorage()) {
-      const r = await chrome.storage.local.get('glassMode');
-      if (['auto', 'on', 'off'].includes(r.glassMode)) return r.glassMode;
-    } else if (typeof localStorage !== 'undefined') {
-      const v = localStorage.getItem('ba.glassMode');
-      if (['auto', 'on', 'off'].includes(v)) return v;
-    }
-  } catch (e) { /* fall through */ }
-  return 'auto';
-}
-
-function saveGlassMode(mode) {
-  try {
-    if (hasChromeStorage()) chrome.storage.local.set({ glassMode: mode });
-    else if (typeof localStorage !== 'undefined') localStorage.setItem('ba.glassMode', mode);
-  } catch (e) { /* not persisted; still applied for this session */ }
 }
 
 // ---------- compact view ----------
@@ -194,48 +61,31 @@ function applyCompact() {
 
 function setCompact(on) {
   compact = !!on;
-  try {
-    if (hasChromeStorage()) chrome.storage.local.set({ compactMode: compact });
-    else if (typeof localStorage !== 'undefined') localStorage.setItem('ba.compactMode', compact ? '1' : '0');
-  } catch (e) { /* not persisted */ }
+  saveCompact(compact);
   applyCompact();
-}
-
-async function loadCompact() {
-  try {
-    if (hasChromeStorage()) return !!(await chrome.storage.local.get('compactMode')).compactMode;
-    if (typeof localStorage !== 'undefined') return localStorage.getItem('ba.compactMode') === '1';
-  } catch (e) { /* default */ }
-  return false;
 }
 
 function applyGlass() {
   parent.postMessage({ type: 'glass', on: effectiveGlass($('glass').value) }, '*');
 }
 
-function fmtScore(l) {
-  if (!l) return '';
-  if (l.mate != null) return (l.mate > 0 ? '+M' : '-M') + Math.abs(l.mate);
-  const v = l.cp / 100;
-  return (v > 0 ? '+' : '') + v.toFixed(2);
-}
-
 // ---------- rendering ----------
 
+const WEAK = 0.85;        // squares the reader is less sure about than this are outlined
 let sel = null;           // selected square (click-to-move)
 let dragFrom = null;      // square currently being dragged
 let history = [];         // undo stack: { fen, lastMove }
 let future = [];          // redo stack
 let lastMove = null;      // { from, to } of the last move played on the panel
 let pendingPromo = null;  // { from, to, color } while the promotion picker is open
+let scanInfo = null;      // { weak: Set<square> } while the position on the board came from a picture
+let lastShot = null;      // the last picture read, kept so the board can be selected on it
 
 function renderBoard() {
-  const b = $('board');
-  b.innerHTML = '';
-  if (!game) return;
-  const board = game.board(); // rank 8 first
+  if (editor.isOpen()) { editor.render(); return; }
+  if (!game) { $('board').textContent = ''; return; }
   const hl = new Set();
-  const first = lines[0] && lines[0].pv[0];
+  const first = engine.lines[0] && engine.lines[0].pv[0];
   if (first && !sel) { hl.add(first.slice(0, 2)); hl.add(first.slice(2, 4)); }
   if (sel) hl.add(sel);
   const last = new Set(lastMove ? [lastMove.from, lastMove.to] : []);
@@ -243,41 +93,21 @@ function renderBoard() {
   if (sel) {
     for (const m of legalMovesFrom(sel)) targets.set(m.to, !!m.captured || m.flags.includes('e'));
   }
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
-      const rr = flipped ? 7 - r : r, ff = flipped ? 7 - f : f;
-      const cell = board[rr][ff];
-      const name = 'abcdefgh'[ff] + (8 - rr);
-      const d = document.createElement('div');
-      d.className = 'sq ' + ((rr + ff) % 2 === 0 ? 'light' : 'dark') +
-        (hl.has(name) ? ' hl' : last.has(name) ? ' last' : '') +
-        (targets.has(name) ? (targets.get(name) ? ' cap' : ' dot') : '');
-      d.dataset.sq = name;
-      if (cell && name !== dragFrom) {
-        const img = document.createElement('img');
-        img.src = `pieces/${cell.color}${cell.type.toUpperCase()}.svg`;
-        img.draggable = false;
-        d.appendChild(img);
-      }
-      if (f === 0) { const c = document.createElement('i'); c.className = 'coord r'; c.textContent = 8 - rr; d.appendChild(c); }
-      if (r === 7) { const c = document.createElement('i'); c.className = 'coord f'; c.textContent = 'abcdefgh'[ff]; d.appendChild(c); }
-      b.appendChild(d);
-    }
-  }
+  const weak = scanInfo && scanInfo.weak;
+  drawBoard($('board'), {
+    grid: gridFromGame(game), flipped, hidden: dragFrom,
+    classFor: (name) => (hl.has(name) ? ' hl' : last.has(name) ? ' last' : '') +
+      (targets.has(name) ? (targets.get(name) ? ' cap' : ' dot') : '') +
+      (weak && weak.has(name) ? ' weak' : ''),
+  });
 }
 
 // ---------- moving pieces on the panel board (like an analysis board) ----------
 // Drag-and-drop or click-click, always on. Either side may move: if you pick up a piece that is not on the move,
 // the turn simply follows it (snapshots often guess the side to move, and a wrong guess must never lock the board).
 
-function squareAt(x, y) {
-  const r = $('board').getBoundingClientRect();
-  if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
-  const col = Math.min(7, Math.floor(((x - r.left) / r.width) * 8));
-  const row = Math.min(7, Math.floor(((y - r.top) / r.height) * 8));
-  const f = flipped ? 7 - col : col, rk = flipped ? row : 7 - row;
-  return 'abcdefgh'[f] + (rk + 1);
-}
+const squareAt = (x, y) => squareFromPoint($('board'), x, y, flipped);
+const letterOf = (p) => (p.color === 'w' ? p.type.toUpperCase() : p.type);
 
 // A position in which `color` is the side to move (en passant rights do not carry over a turn flip).
 function positionFor(color) {
@@ -293,6 +123,14 @@ function legalMovesFrom(sq) {
   if (!piece) return [];
   const g = positionFor(piece.color);
   return g ? g.moves({ square: sq, verbose: true }) : [];
+}
+
+// Following the page would overwrite what you are doing here, so stop it. Returns true if it was on.
+function stopAutoFollow() {
+  if (!$('auto').checked) return false;
+  $('auto').checked = false;
+  $('auto').onchange();
+  return true;
 }
 
 // Returns true (played), 'promo' (waiting for a promotion choice) or false (illegal).
@@ -315,12 +153,7 @@ function tryMove(from, to, promotion) {
   future = [];
   $('turn').value = 'auto';
   setPosition(g.fen(), 'played on panel: ' + m.san, { lastMove: { from, to } });
-  if ($('auto').checked) {
-    // The page would overwrite your line on the next poll, so pause following until you press Snapshot.
-    $('auto').checked = false;
-    $('auto').onchange();
-    setStatus('Auto-follow paused while you play moves here. Press Snapshot to go back to the real position.');
-  }
+  if (stopAutoFollow()) setStatus('Auto-follow paused while you play moves here. Press Snapshot to go back to the real position.');
   return true;
 }
 
@@ -336,7 +169,8 @@ function showPromo() {
     btn.dataset.piece = t;
     btn.title = 'Promote to ' + names[t];
     const img = document.createElement('img');
-    img.src = `pieces/${pendingPromo.color}${t.toUpperCase()}.svg`;
+    img.src = pieceSrc(pendingPromo.color === 'w' ? t.toUpperCase() : t);
+    img.alt = names[t];
     img.draggable = false;
     btn.appendChild(img);
     btn.onclick = (ev) => {
@@ -377,6 +211,7 @@ function redoMove() {
 
 let ghost = null;
 $('board').addEventListener('pointerdown', (e) => {
+  if (editor.isOpen()) { editor.pointer('down', e); return; }
   if (!game || e.button !== 0 || pendingPromo) return;
   const sq = squareAt(e.clientX, e.clientY);
   if (!sq) return;
@@ -389,13 +224,7 @@ $('board').addEventListener('pointerdown', (e) => {
   if (piece) {
     sel = sq;
     dragFrom = sq;
-    ghost = document.createElement('img');
-    ghost.src = `pieces/${piece.color}${piece.type.toUpperCase()}.svg`;
-    const size = $('board').getBoundingClientRect().width / 8;
-    ghost.style.cssText = `position:fixed;width:${size}px;height:${size}px;pointer-events:none;z-index:10;` +
-      `left:${e.clientX - size / 2}px;top:${e.clientY - size / 2}px;filter:drop-shadow(0 6px 10px rgba(0,0,0,.45));` +
-      'transform:scale(1.12);';
-    document.body.appendChild(ghost);
+    ghost = startGhost(letterOf(piece), $('board'), e.clientX, e.clientY);
     try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* synthetic event */ }
   } else {
     sel = null;
@@ -403,12 +232,11 @@ $('board').addEventListener('pointerdown', (e) => {
   renderBoard();
 });
 $('board').addEventListener('pointermove', (e) => {
-  if (!ghost) return;
-  const size = parseFloat(ghost.style.width);
-  ghost.style.left = e.clientX - size / 2 + 'px';
-  ghost.style.top = e.clientY - size / 2 + 'px';
+  if (editor.isOpen()) { editor.pointer('move', e); return; }
+  if (ghost) ghost.move(e.clientX, e.clientY);
 });
 $('board').addEventListener('pointerup', (e) => {
+  if (editor.isOpen()) { editor.pointer('up', e); return; }
   if (!ghost) return;
   const from = dragFrom;
   ghost.remove(); ghost = null; dragFrom = null;
@@ -420,14 +248,15 @@ $('board').addEventListener('pointerup', (e) => {
   }
   renderBoard(); // dropped on the same square (keeps the selection for click-click) or illegal
 });
-$('board').addEventListener('pointercancel', () => {
+$('board').addEventListener('pointercancel', (e) => {
+  if (editor.isOpen()) { editor.pointer('cancel', e); return; }
   if (ghost) { ghost.remove(); ghost = null; dragFrom = null; renderBoard(); }
 });
 
-// Keyboard: ← undo, → redo, Esc deselect / cancel promotion (ignored while typing in a field).
+// Keyboard: ← undo, → redo, Esc deselect / cancel promotion (ignored while typing in a field or in a sheet).
 document.addEventListener('keydown', (e) => {
   if (/^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
-  if (scanUi && scanUi.isOpen()) return; // the scan sheet has its own keys
+  if (editor.isOpen() || cropSheet.isOpen()) return; // they have their own keys
   if (e.key === 'ArrowLeft') { e.preventDefault(); undoMove(); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); redoMove(); }
   else if (e.key === 'Escape') { if (pendingPromo) hidePromo(); else { sel = null; renderBoard(); } }
@@ -453,6 +282,7 @@ function arrow(uci, color, width, opacity) {
 }
 
 function renderAnalysis() {
+  const lines = engine.lines;
   const top = lines[0];
   $('bestMove').textContent = '—';
   $('bestEval').textContent = '';
@@ -501,6 +331,8 @@ function setStatus(msg, err = false) {
 
 // ---------- flow ----------
 
+// opts: lastMove (highlight), scanWeak (squares to outline: the position came from a picture),
+//       keep (same pieces as before: leave the scan note and outlines alone)
 function setPosition(rawFen, src, opts = {}) {
   let fen;
   try {
@@ -513,26 +345,96 @@ function setPosition(rawFen, src, opts = {}) {
   curFen = fen;
   sel = null;
   lastMove = opts.lastMove || null;
+  if (!opts.keep) {
+    scanInfo = opts.scanWeak ? { weak: opts.scanWeak } : null;
+    if (!opts.scanWeak) hideNote();
+  }
   if (pendingPromo) { pendingPromo = null; $('promo').hidden = true; $('promo').innerHTML = ''; }
   $('fen').value = fen;
   setStatus(src ? 'Source: ' + src : '');
-  lines = [];
+  if (game.isGameOver()) engine.stop(); else engine.analyse(fen);
   renderBoard();
   renderAnalysis();
-  if (!game.isGameOver()) requestSearch(fen);
   return true;
 }
 
-function askSnapshot(auto) {
+// ---------- the note under the board ----------
+// What was read from a picture, how sure the reader is, and what to do about it.
+
+function showNote({ kind = 'info', text, actions = [] }) {
+  const n = $('scanNote');
+  n.className = kind === 'info' ? 'note' : `note ${kind}`;
+  $('noteText').textContent = text;
+  const box = $('noteActions');
+  box.textContent = '';
+  for (const a of actions) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = a.label;
+    b.onclick = a.run;
+    box.appendChild(b);
+  }
+  n.hidden = false;
+}
+
+function hideNote() {
+  $('scanNote').hidden = true;
+  lastShot = null; // the picture is only kept while its note can still offer to select the board on it
+}
+
+$('noteClose').onclick = () => {
+  hideNote();
+  if (scanInfo) { scanInfo = null; renderBoard(); } // acknowledged: drop the outlines too
+};
+
+// ---------- reading the page or the screen ----------
+
+// The host page takes screenshots (it hides this panel first so the panel is not in the picture) and reads the
+// chess site's own board data. Both come back as messages.
+let capWait = null, capId = 0;
+function captureTab() {
+  return new Promise((resolve) => {
+    const id = ++capId;
+    const timer = setTimeout(() => {
+      if (capWait && capWait.id === id) {
+        capWait = null;
+        resolve({ ok: false, error: 'The page did not answer. Paste a screenshot instead.' });
+      }
+    }, 8000);
+    capWait = { id, resolve, timer };
+    parent.postMessage({ type: 'capture', id }, '*');
+  });
+}
+
+let snapWait = null, snapId = 0;
+function snapshotOnce() { // the board as the page's own data describes it, or null
+  return new Promise((resolve) => {
+    const id = ++snapId;
+    const timer = setTimeout(() => {
+      if (snapWait && snapWait.id === id) { snapWait = null; resolve(null); }
+    }, 2500);
+    snapWait = { id, resolve, timer };
+    parent.postMessage({ type: 'snapshot', auto: false, id }, '*');
+  });
+}
+
+function askSnapshot(auto) { // fire and forget: Auto-follow polling
   parent.postMessage({ type: 'snapshot', auto }, '*');
 }
 
 window.addEventListener('message', (e) => {
   const d = e.data || {};
   if (d.type === 'toggleCompact') { setCompact(!compact); return; }
-  if (d.type === 'captured') { if (capWait && d.id === capWait.id) { clearTimeout(capWait.timer); capWait.resolve(d); capWait = null; } return; }
+  if (d.type === 'captured') {
+    if (capWait && d.id === capWait.id) { clearTimeout(capWait.timer); capWait.resolve(d); capWait = null; }
+    return;
+  }
   if (d.type !== 'snapshot') return;
-  if (!d.fen) { if (!d.auto) setStatus('No board found on this page. Paste a FEN instead.', true); return; }
+  if (d.id) { // the answer to a Snapshot click
+    if (snapWait && d.id === snapWait.id) { clearTimeout(snapWait.timer); snapWait.resolve(d); snapWait = null; }
+    return;
+  }
+  if (!d.fen || editor.isOpen() || cropSheet.isOpen()) return; // Auto-follow tick: nothing to show, or busy editing
   if (d.auto) {
     if (d.fen === lastAutoFen) return;
     lastAutoFen = d.fen;
@@ -541,16 +443,231 @@ window.addEventListener('message', (e) => {
   setPosition(d.fen, d.src);
 });
 
-$('snap').onclick = () => { lastAutoFen = null; history = []; future = []; askSnapshot(false); };
+const STAGE_LABEL = { capturing: 'Capturing…', loading: 'Loading reader…', locating: 'Finding board…', reading: 'Reading pieces…' };
+const SNAP_TITLE = $('snap').title;
+let busy = false;
+let cycle = 0;       // bumps whenever a read starts or is cancelled; a late answer from an older read is ignored
+
+function setBusy(on, label) {
+  busy = on;
+  $('snap').classList.toggle('busy', on);
+  $('snap').setAttribute('aria-busy', on ? 'true' : 'false');
+  $('snap').title = on ? 'Click to cancel' : SNAP_TITLE;
+  $('snapLabel').textContent = on ? label || 'Reading…' : 'Snapshot';
+}
+
+const flow = createScanFlow({
+  capture: captureTab,
+  makeScanner: (onStage) => createScanner({ onStage }),
+  onStage: (stage) => { if (busy && STAGE_LABEL[stage]) $('snapLabel').textContent = STAGE_LABEL[stage]; },
+});
+
+function lowMemoryHint() {
+  if (typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 2) {
+    setStatus('This device has little memory, so reading a picture may take a while.');
+  }
+}
+
+// Snapshot: the page's own board data when the page has a chess board (exact, with turn and castling),
+// otherwise a picture of the whole screen. Shift+click always takes the picture.
+async function snapshot(ev) {
+  if (busy) { cycle++; flow.cancel(); setBusy(false); setStatus('Cancelled.'); return; }
+  const token = ++cycle;
+  lastAutoFen = null;
+  hideNote();
+  setBusy(true, 'Reading…');
+  if (!(ev && ev.shiftKey)) {
+    const s = await snapshotOnce();
+    if (token !== cycle) return;
+    if (s && s.fen) {
+      setBusy(false);
+      history = []; future = [];
+      setPosition(s.fen, s.src);
+      return;
+    }
+  }
+  lowMemoryHint();
+  const out = await flow.scanScreen();
+  if (token !== cycle) return;
+  setBusy(false);
+  handleOutcome(out);
+}
+
+// A picture the person chose, pasted or dropped, or the boxed part of the last one.
+async function readPicture(blob, crop = null) {
+  if (busy) { cycle++; flow.cancel(); }
+  const token = ++cycle;
+  hideNote();
+  setBusy(true, 'Reading…');
+  lowMemoryHint();
+  const out = await flow.scanBlob(blob, crop, 'picture');
+  if (token !== cycle) return;
+  setBusy(false);
+  handleOutcome(out);
+}
+
+function acceptPicture(file) {
+  if (!file || !/^image\//.test(file.type || '')) {
+    showNote({ kind: 'err', text: 'That is not a picture. Use a PNG, JPEG or WebP image.' });
+    return;
+  }
+  readPicture(file);
+}
+
+function handleOutcome(out) {
+  if (out.kind === 'cancelled') return;
+  if (out.blob) lastShot = out.blob;
+  if (out.ok) { applyScan(out); return; }
+  const pick = { label: 'Choose a picture…', run: () => $('pictureInput').click() };
+  const select = { label: 'Select board…', run: openCrop };
+  if (out.kind === 'capture') {
+    showNote({ kind: 'err', text: out.error, actions: [pick] });
+  } else {
+    showNote({
+      kind: 'err',
+      text: 'The board could not be read: ' + out.error,
+      actions: [{ label: 'Try again', run: () => (out.blob ? readPicture(out.blob) : snapshot()) }, select, pick],
+    });
+  }
+}
+
+function openCrop() { if (lastShot) cropSheet.open(lastShot); }
+
+// A square as drawn in the picture (row, column from the top-left) to its name.
+const drawnSquare = (r, c, blackAtBottom) => (blackAtBottom ? squareName(7 - r, 7 - c) : squareName(r, c));
+// The same square seen from the other end of the board (a1 <-> h8).
+const rotateSquare = (name) => squareName(+name[1] - 1, 104 - name.charCodeAt(0));
+
+// Show a position that came from a picture straight on the board and start analysing it.
+// If it cannot be a real position, open the editor on it instead so it can be fixed.
+function applyScan(out) {
+  const res = out.result;
+  const black = res.bottom === 'black';
+  const grid = black ? rotateGrid(res.grid) : res.grid;
+  const weak = new Set();
+  (res.squareConfidence || []).forEach((c, i) => { if (c < WEAK) weak.add(drawnSquare(i >> 3, i & 7, black)); });
+  const turn = guessTurn(grid);
+  const castle = homeCastling(grid);
+  const select = { label: 'Select board…', run: openCrop };
+  if (checkPosition(grid, turn)) {
+    if (res.pieces < 3) {
+      showNote({
+        kind: 'err',
+        text: `I could not find a chess board on the ${out.source}. Select the board, or try a clearer picture.`,
+        actions: [select, { label: 'Choose a picture…', run: () => $('pictureInput').click() }],
+      });
+      return;
+    }
+    openEditor({ grid, flipped: black, turn, castle, weak });
+    return;
+  }
+  adopt({ grid, flipped: black, turn, castle, weak, src: `scanned from the ${out.source}`, unsure: res.orientationUnsure, verb: `Scanned from the ${out.source}` });
+}
+
+// Put a position on the board and say what it is.
+function adopt({ grid, flipped: view, turn, castle, weak, src, unsure, verb }) {
+  history = []; future = [];
+  $('turn').value = 'auto';
+  flipped = view; // show the board the way the picture showed it
+  lastAutoFen = null;
+  stopAutoFollow();
+  setPosition(fenFrom({ grid, turn, castle }), src, { scanWeak: weak });
+  const parts = [`${verb} · ${turn === 'w' ? 'White' : 'Black'} to move.`];
+  if (unsure) parts.push('Not sure which side is at the bottom.');
+  if (weak.size) parts.push(`${weak.size} uncertain square${weak.size > 1 ? 's' : ''} outlined.`);
+  const doubtful = unsure || weak.size > 0;
+  const actions = [{ label: 'Edit', run: editCurrent }];
+  if (unsure) actions.push({ label: 'Wrong way up', run: turnAround });
+  if (doubtful && lastShot) actions.push({ label: 'Select board…', run: openCrop });
+  showNote({ kind: doubtful ? 'warn' : 'info', text: parts.join(' '), actions });
+}
+
+// The reader guessed the wrong side at the bottom: the same pieces, seen from the other end.
+function turnAround() {
+  if (!game) return;
+  const grid = rotateGrid(gridFromGame(game));
+  const weak = new Set([...(scanInfo ? scanInfo.weak : [])].map(rotateSquare));
+  const turn = game.turn();
+  const castle = homeCastling(grid);
+  const view = !flipped;
+  if (checkPosition(grid, turn)) { openEditor({ grid, flipped: view, turn, castle, weak }); return; }
+  adopt({ grid, flipped: view, turn, castle, weak, src: 'turned around', unsure: false, verb: 'Turned around' });
+}
+
+// ---------- editing the position ----------
+
+const rightsFrom = (field) => ({ K: /K/.test(field), Q: /Q/.test(field), k: /k/.test(field), q: /q/.test(field) });
+
+function openEditor(spec) {
+  engine.stop();
+  hideNote();
+  editor.open(spec);
+}
+
+function editCurrent() {
+  if (!game) return;
+  openEditor({
+    grid: gridFromGame(game), flipped, turn: game.turn(), castle: rightsFrom(curFen.split(' ')[2]),
+    weak: scanInfo ? scanInfo.weak : [],
+  });
+}
+
+const editor = createEditor({
+  $,
+  onDone: ({ grid, turn, castle, flipped: view }) => {
+    if (curFen) history.push({ fen: curFen, lastMove });
+    future = [];
+    $('turn').value = 'auto';
+    flipped = view;
+    const wasFollowing = stopAutoFollow();
+    setPosition(fenFrom({ grid, turn, castle }), 'edited on the panel');
+    if (wasFollowing) setStatus('Auto-follow is off while you edit. Press Snapshot to go back to the page.');
+  },
+  onCancel: ({ flipped: view }) => {
+    flipped = view;
+    renderBoard();
+    if (game && !game.isGameOver()) { engine.analyse(curFen); renderAnalysis(); } // it was paused while editing
+  },
+});
+
+const cropSheet = createCropSheet({ $, onRead: (blob, crop) => readPicture(blob, crop), onCancel: () => {} });
+
+// ---------- pictures from files, the clipboard and drag-and-drop ----------
+
+$('pictureBtn').onclick = () => $('pictureInput').click();
+$('pictureInput').onchange = (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (f) acceptPicture(f);
+};
+const busyEditing = () => editor.isOpen() || cropSheet.isOpen();
+document.addEventListener('paste', (e) => {
+  if (busyEditing()) return;
+  const item = Array.from((e.clipboardData && e.clipboardData.items) || []).find((it) => it.kind === 'file' && /^image\//.test(it.type || ''));
+  if (!item) return;
+  e.preventDefault();
+  acceptPicture(item.getAsFile());
+});
+const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+document.addEventListener('dragover', (e) => { if (hasFiles(e) && !busyEditing()) e.preventDefault(); });
+document.addEventListener('drop', (e) => {
+  if (!hasFiles(e) || busyEditing()) return;
+  e.preventDefault();
+  const f = Array.from(e.dataTransfer.files || []).find((x) => /^image\//.test(x.type || ''));
+  if (f) acceptPicture(f);
+});
+
+// ---------- wiring ----------
+
+$('snap').onclick = snapshot;
+$('editBtn').onclick = editCurrent;
 $('undo').onclick = undoMove;
 $('redo').onclick = redoMove;
 $('go').onclick = () => setPosition($('fen').value);
 $('fen').addEventListener('keydown', (e) => { if (e.key === 'Enter') setPosition($('fen').value); });
 $('flip').onclick = () => { flipped = !flipped; renderBoard(); renderAnalysis(); };
-// The header (host shell) owns Hide/Minimize now; keep the hook so an older panel.html with its own button still works.
-if ($('close')) $('close').onclick = () => parent.postMessage({ type: 'close' }, '*');
-$('turn').onchange = () => curFen && setPosition(curFen);
-$('multipv').onchange = () => curFen && setPosition(curFen);
+$('turn').onchange = () => curFen && setPosition(curFen, undefined, { keep: true });
+$('multipv').onchange = () => curFen && setPosition(curFen, undefined, { keep: true });
 $('auto').onchange = () => {
   clearInterval(autoTimer);
   lastAutoFen = null;
@@ -571,40 +688,6 @@ $('glass').onchange = () => { saveGlassMode($('glass').value); applyGlass(); };
 loadGlassMode().then((mode) => { $('glass').value = mode; applyGlass(); });
 loadCompact().then((on) => { compact = on; applyCompact(); });
 
-// ---------- scan a board from a picture ----------
-// The host page takes the screenshot (it hides this panel first so the panel is not in the picture).
-let capWait = null;
-let capId = 0;
-function captureTab() {
-  return new Promise((resolve) => {
-    const id = ++capId;
-    const timer = setTimeout(() => {
-      if (capWait && capWait.id === id) {
-        capWait = null;
-        resolve({ ok: false, error: 'The page did not answer. Paste a screenshot instead.' });
-      }
-    }, 8000);
-    capWait = { id, resolve, timer };
-    parent.postMessage({ type: 'capture', id }, '*');
-  });
-}
-
-const scanUi = initScanUI({
-  $,
-  makeScanner: (onStage) => createScanner({ onStage }),
-  capture: captureTab,
-  onAnalyze: ({ fen, flipped: bottomIsBlack, summary }) => {
-    history = []; future = [];
-    $('turn').value = 'auto';
-    flipped = bottomIsBlack; // show the board the way the picture showed it
-    lastAutoFen = null;
-    if ($('auto').checked) { $('auto').checked = false; $('auto').onchange(); }
-    if (setPosition(fen, summary)) setStatus('Position ' + summary + '. Auto-follow is off; press Snapshot to go back to the page.');
-  },
-});
-$('scanBtn').onclick = () => scanUi.open();
-window.__scanUi = scanUi; // lets the offline tests inspect the sheet; invisible to web pages (extension origin)
-
 setPosition(START);
 
 // Tell the host how tall the panel is, now and whenever the content changes (more engine lines, status text...).
@@ -617,3 +700,5 @@ function reportHeight() {
 }
 reportHeight();
 if (typeof ResizeObserver === 'function') new ResizeObserver(reportHeight).observe(document.body);
+
+window.__panel = { editor, cropSheet, flow }; // for the offline tests; invisible to web pages (extension origin)

@@ -11,7 +11,9 @@ let fail = 0;
 const check = (n, c, x = "") => { console.log(`  ${c ? "✓" : "✗"} ${n} ${c ? "" : x}`); if (!c) fail++; };
 
 const core = await import(`file://${COPY}/scanner/core.js`);
-const ui = await import(`file://${COPY}/scan-ui.js`);
+const ed = await import(`file://${COPY}/editor.js`);
+const bv = await import(`file://${COPY}/board-view.js`);
+const sf = await import(`file://${COPY}/scan-flow.js`);
 const { createScanner } = await import(`file://${COPY}/scanner/client.js`);
 
 // ---------------- 1. reader helpers ----------------
@@ -44,20 +46,24 @@ const mk = (idxs) => idxs.map((c) => { const p = Array(13).fill(0.001); p[c] = 0
   check("a pawn on the back rank is demoted", core.fixLegality(R)[3] === 2);
 }
 
-// ---------------- 2. position checks ----------------
-console.log("2. position checks (scan-ui.js)");
+// ---------------- 2. position checks and board helpers ----------------
+console.log("2. position checks (editor.js) and board helpers (board-view.js)");
 const G = (pl) => core.placementToGrid(pl);
-check("start position is fine", ui.checkPosition(G(START), "w") === null);
-check("no black king", /black king/.test(ui.checkPosition(G("8/8/8/8/8/8/8/4K3"), "w")));
-check("no white king", /white king/.test(ui.checkPosition(G("4k3/8/8/8/8/8/8/8"), "w")));
-check("two white kings", /one white king/.test(ui.checkPosition(G("4k3/8/8/8/8/8/8/K3K3"), "w")));
-check("pawn on the last row", /first or last/.test(ui.checkPosition(G("4k2P/8/8/8/8/8/8/4K3"), "w")));
-check("nine pawns", /more than 8 pawns/.test(ui.checkPosition(G("4k3/pppppppp/p7/8/8/8/PPPPPPPP/4K3"), "w")));
+check("start position is fine", ed.checkPosition(G(START), "w") === null);
+check("no black king", /black king/.test(ed.checkPosition(G("8/8/8/8/8/8/8/4K3"), "w")));
+check("no white king", /white king/.test(ed.checkPosition(G("4k3/8/8/8/8/8/8/8"), "w")));
+check("two white kings", /one white king/.test(ed.checkPosition(G("4k3/8/8/8/8/8/8/K3K3"), "w")));
+check("pawn on the last row", /first or last/.test(ed.checkPosition(G("4k2P/8/8/8/8/8/8/4K3"), "w")));
+check("nine pawns", /more than 8 pawns/.test(ed.checkPosition(G("4k3/pppppppp/p7/8/8/8/PPPPPPPP/4K3"), "w")));
 const inCheck = G("4k3/8/8/8/8/8/4R3/4K3");
-check("black in check while White is to move is illegal", /Black is in check/.test(ui.checkPosition(inCheck, "w")));
-check("...but fine when it is Black's move", ui.checkPosition(inCheck, "b") === null);
-check("castling rights only where king and rook stand at home", JSON.stringify(ui.homeCastling(G(START))) === '{"K":true,"Q":true,"k":true,"q":true}' && JSON.stringify(ui.homeCastling(G("4k3/8/8/8/8/8/8/4K3"))) === '{"K":false,"Q":false,"k":false,"q":false}');
-check("a data URL becomes an image Blob", (() => { const b = ui.dataUrlToBlob("data:image/png;base64,iVBORw0KGgo="); return b.type === "image/png" && b.size === 8; })());
+check("black in check while White is to move is illegal", /Black is in check/.test(ed.checkPosition(inCheck, "w")));
+check("...but fine when it is Black's move", ed.checkPosition(inCheck, "b") === null);
+check("the side to move is guessed from who is in check", ed.guessTurn(inCheck) === "b" && ed.guessTurn(G(START)) === "w");
+check("castling rights only where king and rook stand at home", JSON.stringify(ed.homeCastling(G(START))) === '{"K":true,"Q":true,"k":true,"q":true}' && JSON.stringify(ed.homeCastling(G("4k3/8/8/8/8/8/8/4K3"))) === '{"K":false,"Q":false,"k":false,"q":false}');
+check("FEN is built from grid, turn and rights", ed.fenFrom({ grid: G(START), turn: "b", castle: { K: true, Q: false, k: false, q: true } }) === START + " b Kq - 0 1");
+check("no rights gives '-'", ed.fenFrom({ grid: G(START), turn: "w", castle: {} }).split(" ")[2] === "-");
+check("a data URL becomes an image Blob", (() => { const b = sf.dataUrlToBlob("data:image/png;base64,iVBORw0KGgo="); return b.type === "image/png" && b.size === 8; })());
+check("square names <-> grid positions", bv.squareName(0, 0) === "a8" && bv.squareName(7, 7) === "h1" && bv.squarePos("e4").join() === "4,4");
 
 // ---------------- 3. client: worker, fallback, idle ----------------
 console.log("3. scanner client");
@@ -116,8 +122,8 @@ const mkWorker = (opts = {}) => {
   await sc.dispose();
 }
 
-// ---------------- 4. the sheet inside the real panel ----------------
-console.log("4. scan sheet in the panel");
+// ---------------- 4. the panel: Snapshot, scans, editor ----------------
+console.log("4. panel");
 const html = fs.readFileSync(`${COPY}/panel.html`, "utf8").replace(/<script[^>]*><\/script>/, "").replace(/<link[^>]*>/, "");
 const dom = new JSDOM(html, { url: "chrome-extension://abc/panel.html", pretendToBeVisual: true });
 const w = dom.window;
@@ -137,17 +143,19 @@ class FakeWorker {
   }
   terminate() { this.terminated = true; }
 }
-const cannedGrid = core.placementToGrid("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R");
-const cannedResult = (over = {}) => ({
+const START_FEN = START + " w KQkq - 0 1";
+const ITALIAN = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R";
+const cannedGrid = core.placementToGrid(ITALIAN);
+const result = (over = {}) => ({
   grid: cannedGrid.map((r) => [...r]), bottom: "white", bottomConfidence: 0.99, orientationUnsure: false,
-  placement: "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R", confidence: 0.99,
-  squareConfidence: Array(64).fill(0.99), legalityChanges: 0, pieces: 28, corners: [[0, 0], [1, 0], [1, 1], [0, 1]], ms: { locate: 1, read: 1 }, ...over,
+  placement: ITALIAN, confidence: 0.99, squareConfidence: Array(64).fill(0.99), legalityChanges: 0, pieces: 28,
+  corners: [[0, 0], [1, 0], [1, 1], [0, 1]], ms: { locate: 1, read: 1 }, ...over,
 });
-let nextResult = () => cannedResult();
+let nextResult = () => result();
 FakeWorker.onScan = (wk, m) => {
   wk.onmessage({ data: { type: "stage", id: m.id, stage: "locating" } });
   setTimeout(() => {
-    const r = nextResult();
+    const r = nextResult(m);
     if (r instanceof Error) wk.onmessage({ data: { type: "error", id: m.id, message: r.message } });
     else if (r !== "hang") wk.onmessage({ data: { type: "result", id: m.id, result: r } });
   }, 5);
@@ -155,217 +163,289 @@ FakeWorker.onScan = (wk, m) => {
 Object.assign(globalThis, { window: w, document: w.document, parent: { postMessage: (m) => posted.push(m) }, Worker: FakeWorker });
 globalThis.ResizeObserver = class { constructor() {} observe() {} };
 w.open = () => null;
-Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} }, deviceMemory: 8, hardwareConcurrency: 8 }, configurable: true, writable: true });
+const setNav = (o) => Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} }, deviceMemory: 8, hardwareConcurrency: 8, ...o }, configurable: true, writable: true });
+setNav({});
 globalThis.chrome = { storage: { local: { get: async () => ({}), set: async () => {} } } };
 const created = [], revoked = [];
-URL.createObjectURL = (b) => { const u = `blob:test/${created.length}`; created.push(u); return u; };
+URL.createObjectURL = () => { const u = `blob:test/${created.length}`; created.push(u); return u; };
 URL.revokeObjectURL = (u) => revoked.push(u);
 const $ = (id) => w.document.getElementById(id);
 await import(`file://${COPY}/panel.js?t=${Date.now()}`);
 await sleep(40);
+const P = w.__panel;
 
-const vis = (id) => !$(id).hidden;
-const png = () => new w.File([new Uint8Array([137, 80, 78, 71])], "board.png", { type: "image/png" });
-const showImage = (nw = 1000, nh = 500) => {
-  const img = $("picImg");
-  Object.defineProperty(img, "naturalWidth", { value: nw, configurable: true });
-  Object.defineProperty(img, "naturalHeight", { value: nh, configurable: true });
-  img.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 100, width: 200, height: 100 });
-  img.dispatchEvent(new w.Event("load"));
-};
+const boardEl = $("board");
+boardEl.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 320, width: 320, height: 320 });
+boardEl.setPointerCapture = () => {};
 const mouse = (el, type, x, y) => el.dispatchEvent(new w.MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true }));
-const sboard = () => $("sBoard");
-const squareCenter = (r, c) => [c * 40 + 20, r * 40 + 20];
-const stubBoard = () => { sboard().getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 320, width: 320, height: 320 }); };
-const sqEl = (r, c) => sboard().querySelector(`.sq[data-r="${r}"][data-c="${c}"]`);
-const pieceAt = (r, c) => { const i = sqEl(r, c).querySelector("img"); return i ? i.alt : null; };
+const at = (sq) => { const f = "abcdefgh".indexOf(sq[0]), r = +sq[1]; return [f * 40 + 20, (8 - r) * 40 + 20]; };
+const press = (sq) => { mouse(boardEl, "pointerdown", ...at(sq)); mouse(boardEl, "pointerup", ...at(sq)); };
+const fenNow = () => $("fen").value;
+const sqEl = (n) => boardEl.querySelector(`.sq[data-sq="${n}"]`);
+const pieceAt = (n) => { const i = sqEl(n).querySelector("img"); return i ? i.alt : null; };
+const weakNow = () => [...boardEl.querySelectorAll(".sq.weak")].map((d) => d.dataset.sq).sort().join();
+const waitFor = async (fn, ms = 1500) => { const t = Date.now(); while (Date.now() - t < ms) { if (fn()) return true; await sleep(10); } return false; };
+const idle = () => !$("snap").classList.contains("busy");
+const asks = () => posted.filter((m) => m.type === "snapshot" && m.auto === false);
+const caps = () => posted.filter((m) => m.type === "capture");
+const reply = (data) => w.dispatchEvent(new w.MessageEvent("message", { data }));
+const PNG_URL = "data:image/png;base64,iVBORw0KGgo=";
+const png = () => new w.File([new Uint8Array([137, 80, 78, 71])], "board.png", { type: "image/png" });
+// Take a snapshot on a page without a chess board, answering the host's questions like the real host would.
+async function screenSnapshot({ shift = false } = {}) {
+  const asked = asks().length, capped = caps().length;
+  $("snap").dispatchEvent(new w.MouseEvent("click", { bubbles: true, shiftKey: shift }));
+  if (!shift) { await waitFor(() => asks().length === asked + 1); reply({ type: "snapshot", fen: null, src: "none", auto: false, id: asks().at(-1).id }); }
+  await waitFor(() => caps().length === capped + 1);
+  reply({ type: "captured", id: caps().at(-1).id, ok: true, dataUrl: PNG_URL });
+  await waitFor(idle, 3000);
+}
+const resetBoard = async () => {
+  $("noteClose").click();
+  $("snap").click(); const a = asks().at(-1); reply({ type: "snapshot", fen: START_FEN, src: "t", auto: false, id: a.id }); await sleep(10);
+};
+const noteActions = () => [...$("noteActions").querySelectorAll("button")].map((b) => b.textContent);
+const clickAction = (label) => [...$("noteActions").querySelectorAll("button")].find((b) => b.textContent === label).click();
 
-check("a Scan button sits next to Snapshot", !!$("scanBtn") && $("scanBtn").closest(".row").contains($("snap")));
-check("the sheet starts closed and the board is shown", $("scan").hidden && !$("main").hidden && !w.document.body.classList.contains("scanning"));
-$("scanBtn").click();
-check("Scan opens the sheet: main board hidden, picker shown", vis("scan") && $("main").hidden && vis("scanPick") && !vis("scanPic") && w.document.body.classList.contains("scanning"));
-check("no low-memory warning on an 8 GB device", $("scanLowMem").hidden);
-$("scanBack").click();
-check("Back returns to the board untouched", $("scan").hidden && !$("main").hidden && !w.document.body.classList.contains("scanning"));
-Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} }, deviceMemory: 1, hardwareConcurrency: 4 }, configurable: true, writable: true });
-$("scanBtn").click();
-check("a 1 GB device gets a low-memory heads-up", !$("scanLowMem").hidden);
-Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} }, deviceMemory: 8, hardwareConcurrency: 8 }, configurable: true, writable: true });
-
-console.log("4a. capturing the tab");
-$("scanCapture").click();
-const capMsg = posted.filter((m) => m.type === "capture").at(-1);
-check("Capture asks the host page for a screenshot", !!capMsg && typeof capMsg.id === "number", JSON.stringify(posted.slice(-3)));
-check("the button is disabled while waiting", $("scanCapture").disabled);
-w.dispatchEvent(new w.MessageEvent("message", { data: { type: "captured", id: capMsg.id + 99, ok: true, dataUrl: "data:image/png;base64,iVBORw0KGgo=" } }));
-check("an answer for another request is ignored", $("scanCapture").disabled && !vis("scanPic"));
-w.dispatchEvent(new w.MessageEvent("message", { data: { type: "captured", id: capMsg.id, ok: false, error: "Chrome only allows capturing after you click the icon." } }));
+console.log("4a. one button reads the page, or else the screen");
+check("the toolbar has Snapshot, Edit and a side button for pictures", !!$("snap") && !!$("editBtn") && !!$("pictureBtn") && $("snap").closest(".row").contains($("editBtn")) && $("snap").closest(".row").contains($("pictureBtn")));
+check("undo, redo and flip moved next to Auto-follow", $("auto").closest(".row").contains($("undo")) && $("auto").closest(".row").contains($("flip")));
+check("there is no scan sheet any more", !$("scan") && !$("scanBtn"));
+$("snap").click();
+const first = asks().at(-1);
+check("Snapshot first asks the page for its own board data", !!first && typeof first.id === "number" && caps().length === 0);
+reply({ type: "snapshot", fen: ITALIAN + " w - - 0 1", src: "chess.com board DOM", auto: false, id: first.id });
 await sleep(10);
-check("a refused capture explains itself and stays on the picker", /click the icon/.test($("scanPickMsg").textContent) && $("scanPickMsg").classList.contains("err") && vis("scanPick") && !$("scanCapture").disabled);
-$("scanCapture").click();
-const cap2 = posted.filter((m) => m.type === "capture").at(-1);
-w.dispatchEvent(new w.MessageEvent("message", { data: { type: "captured", id: cap2.id, ok: true, dataUrl: "data:image/png;base64,iVBORw0KGgo=" } }));
-await sleep(10);
-check("a good capture opens the picture step", vis("scanPic") && !vis("scanPick") && $("picImg").getAttribute("src") === created.at(-1));
-showImage();
+check("a chess site answers: exact position, no picture taken", fenNow().startsWith(ITALIAN) && caps().length === 0 && $("status").textContent === "Source: chess.com board DOM" && idle());
+check("an answer for an old request is ignored", (() => { const f = fenNow(); reply({ type: "snapshot", fen: START_FEN, src: "x", auto: false, id: 999999 }); return fenNow() === f; })());
 
-console.log("4b. boxing the board");
-check("hint invites a box", /Drag a box/.test($("picHint").textContent));
-mouse($("picWrap"), "pointerdown", 20, 10); mouse($("picWrap"), "pointermove", 120, 70); mouse($("picWrap"), "pointerup", 120, 70);
-check("dragging draws the box", !$("picBox").hidden && $("picBox").style.left === "20px" && $("picBox").style.width === "100px" && $("picBox").style.height === "60px");
-check("hint now says only the box is read", /boxed area/.test($("picHint").textContent));
-mouse($("picWrap"), "pointerdown", 40, 40); mouse($("picWrap"), "pointerup", 41, 41);
-check("a plain click clears the box", $("picBox").hidden && /Drag a box/.test($("picHint").textContent));
-mouse($("picWrap"), "pointerdown", 190, 90); mouse($("picWrap"), "pointermove", 20, 10); mouse($("picWrap"), "pointerup", 20, 10);
-check("dragging backwards works", $("picBox").style.left === "20px" && $("picBox").style.width === "170px");
-mouse($("picWrap"), "pointerdown", 20, 10); mouse($("picWrap"), "pointermove", 400, 300); mouse($("picWrap"), "pointerup", 400, 300);
-check("the box is clamped to the picture", $("picBox").style.width === "180px" && $("picBox").style.height === "90px", `${$("picBox").style.width}x${$("picBox").style.height}`);
-mouse($("picWrap"), "pointerdown", 20, 10); mouse($("picWrap"), "pointermove", 120, 70); mouse($("picWrap"), "pointerup", 120, 70);
+await screenSnapshot();
+check("no board on the page: the screen is captured automatically", caps().length === 1);
+const scanMsg = FakeWorker.scan.sent.at(-1);
+check("the whole picture goes to the reader (no box)", scanMsg.type === "scan" && scanMsg.crop === null && scanMsg.blob.type === "image/png");
+check("the position is analysed straight away: no confirmation step", fenNow().startsWith(ITALIAN + " w") && /scanned from the screen/.test($("status").textContent) && !w.document.body.classList.contains("editing") && !w.document.body.classList.contains("cropping"));
+check("the engine was asked to analyse it", FakeWorker.engine.sent.some((m) => String(m).startsWith("position fen " + ITALIAN)));
+check("a calm note says what happened, with Edit", !$("scanNote").hidden && !$("scanNote").classList.contains("warn") && /Scanned from the screen · White to move/.test($("noteText").textContent) && noteActions().join() === "Edit", $("noteText").textContent);
+check("no outlines when the reader is sure", weakNow() === "");
+check("the board shows the pieces", pieceAt("e1") === "White king" && pieceAt("a8") === "Black rook" && pieceAt("e4") === "White pawn");
+check("button label followed the stages and is back to normal", idle() && $("snapLabel").textContent === "Snapshot");
 
-console.log("4c. reading");
-$("scanRead").click();
-check("Read shows progress", vis("scanBusy") && /Loading|Finding|Reading/.test($("busyText").textContent));
-await sleep(80);
-const sw = FakeWorker.scan;
-const scanMsg = sw.sent.find((m) => m.type === "scan");
-check("the picture and the box (in picture pixels) go to the worker", !!scanMsg && scanMsg.crop.map(Math.round).join() === "100,50,600,350", JSON.stringify(scanMsg && scanMsg.crop));
-check("the worker's stage text was shown, then the result opened", vis("scanResult") && !vis("scanBusy"));
-stubBoard();
-check("64 squares, one image per piece", sboard().querySelectorAll(".sq").length === 64 && sboard().querySelectorAll(".sq img").length === cannedGrid.flat().filter(Boolean).length);
-check("the pieces are where the reader put them", pieceAt(0, 0) === "Black rook" && pieceAt(7, 4) === "White king" && pieceAt(4, 4) === "White pawn");
-check("top-left square is light, like a real board", sqEl(0, 0).classList.contains("light") && sqEl(0, 1).classList.contains("dark") && sqEl(7, 0).classList.contains("dark"));
-check("rank/file labels match White at the bottom", sqEl(0, 0).querySelector(".coord.r").textContent === "8" && sqEl(7, 0).querySelector(".coord.f").textContent === "a");
-check("Bottom=White, To move=White chosen", w.document.querySelector("input[name=sBottom]:checked").value === "white" && w.document.querySelector("input[name=sTurn]:checked").value === "w");
-check("all four castling rights are offered and ticked (king and rooks are home)", ["sCK","sCQ","sCk","sCq"].every((id) => $(id).checked && !$(id).disabled));
-check("Analyze is enabled for a legal position", !$("sAnalyze").disabled);
-check("palette has Move, 12 pieces and an eraser", $("sPalette").querySelectorAll("button.tool").length === 14 && $("sPalette").querySelector(".tool.on").dataset.tool === "move");
-check("no weak squares: the note says it looks right", /Looks right/.test($("sNote").textContent) && sboard().querySelectorAll(".sq.weak").length === 0);
-
-console.log("4d. editing");
-// place with the palette
-$("sPalette").querySelector('[data-tool="Q"]').click();
-check("choosing a piece selects it", $("sPalette").querySelector(".tool.on").dataset.tool === "Q");
-let [x, y] = squareCenter(3, 0); mouse(sboard(), "pointerdown", x, y); mouse(sboard(), "pointerup", x, y);
-check("clicking a square places it", pieceAt(3, 0) === "White queen");
-mouse(sboard(), "pointerdown", x, y); mouse(sboard(), "pointerup", x, y);
-check("clicking again with the same piece removes it", pieceAt(3, 0) === null);
-$("sPalette").querySelector('[data-tool="erase"]').click();
-[x, y] = squareCenter(6, 0); mouse(sboard(), "pointerdown", x, y);
-check("the eraser removes a piece", pieceAt(6, 0) === null);
-$("sPalette").querySelector('[data-tool="move"]').click();
-// drag a piece to an empty square
-const p1 = squareCenter(6, 1), p2 = squareCenter(4, 1);
-mouse(sboard(), "pointerdown", ...p1); mouse(sboard(), "pointermove", ...p2); mouse(sboard(), "pointerup", ...p2);
-check("dragging moves a piece (any square, no rules)", pieceAt(6, 1) === null && pieceAt(4, 1) === "White pawn");
-// click-click
-const c1 = squareCenter(4, 1), c2 = squareCenter(3, 1);
-mouse(sboard(), "pointerdown", ...c1); mouse(sboard(), "pointerup", ...c1);
-check("first click selects", sqEl(4, 1).classList.contains("hl"));
-mouse(sboard(), "pointerdown", ...c2);
-check("second click moves it", pieceAt(3, 1) === "White pawn" && pieceAt(4, 1) === null);
-// drag off the board = remove
-const d1 = squareCenter(1, 0);
-mouse(sboard(), "pointerdown", ...d1); mouse(sboard(), "pointerup", 999, 999);
-check("dropping a piece off the board removes it", pieceAt(1, 0) === null);
-
-console.log("4e. validation");
-// remove the white king -> cannot analyze
-const wk = squareCenter(7, 4);
-mouse(sboard(), "pointerdown", ...wk); mouse(sboard(), "pointerup", 999, 999);
-check("without a white king Analyze is disabled and the note says what to add", $("sAnalyze").disabled && /white king/.test($("sNote").textContent) && $("sNote").classList.contains("err"), $("sNote").textContent);
-check("losing the king also drops the castling rights that depended on it", $("sCK").disabled && $("sCQ").disabled && !$("sCK").checked);
-$("sPalette").querySelector('[data-tool="K"]').click();
-mouse(sboard(), "pointerdown", ...wk);
-$("sPalette").querySelector('[data-tool="move"]').click();
-check("putting the king back re-enables Analyze", !$("sAnalyze").disabled);
-check("castling stays off after the king was moved (rights are not invented)", !$("sCK").checked);
-$("sCK").checked = true; $("sCK").dispatchEvent(new w.Event("change"));
-check("and can be ticked again by hand", $("sCK").checked && /KQ|K/.test(window.__scanUi.fen().split(" ")[2]));
-
-console.log("4f. orientation and finishing");
-const before = window.__scanUi.fen();
-w.document.querySelector("input[name=sBottom][value=black]").checked = true;
-w.document.querySelector("input[name=sBottom][value=black]").dispatchEvent(new w.Event("change"));
-check("Bottom=Black rotates the FEN to White's view", window.__scanUi.fen().split(" ")[0] === core.gridToPlacement(core.rotateGrid(JSON.parse(JSON.stringify(window.__scanUi._state().grid)))) && window.__scanUi.fen() !== before);
-check("labels follow the bottom side", sqEl(0, 0).querySelector(".coord.r").textContent === "1" && sqEl(7, 0).querySelector(".coord.f").textContent === "h");
-w.document.querySelector("input[name=sBottom][value=white]").checked = true;
-w.document.querySelector("input[name=sBottom][value=white]").dispatchEvent(new w.Event("change"));
-w.document.querySelector("input[name=sTurn][value=b]").checked = true;
-w.document.querySelector("input[name=sTurn][value=b]").dispatchEvent(new w.Event("change"));
-check("To move = Black is in the FEN", window.__scanUi.fen().split(" ")[1] === "b");
-// leave auto-follow on to prove it is switched off
-$("auto").checked = true;
-const fenBefore = $("fen").value;
-const stopAuto = posted.length;
-$("sAnalyze").click();
-await sleep(30);
-check("Analyze closes the sheet and shows the board again", $("scan").hidden && !$("main").hidden && !w.document.body.classList.contains("scanning"));
-check("the position went into the panel (FEN box)", $("fen").value !== fenBefore && $("fen").value.split(" ")[1] === "b", $("fen").value);
-check("the engine was asked to analyze it", FakeWorker.engine.sent.some((m) => String(m).startsWith("position fen " + $("fen").value.split(" ").slice(0, 2).join(" "))));
-check("auto-follow was switched off so the page cannot overwrite it", $("auto").checked === false && /Auto-follow is off/.test($("status").textContent), $("status").textContent);
-check("the status says it came from a picture", /scanned from a picture/.test($("status").textContent));
-check("object URL of the picture was released", revoked.length >= 1);
-$("undo").click();
-check("scanning starts a clean undo history", $("fen").value.split(" ")[1] === "b");
-
-console.log("4g. weak squares, unsure orientation, errors");
-$("scanBtn").click();
-w.document.dispatchEvent(Object.assign(new w.Event("paste", { bubbles: true, cancelable: true }), { clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => png() }] } }));
-check("pasting an image opens the sheet on the picture", vis("scan") && vis("scanPic"));
-showImage();
-nextResult = () => cannedResult({ squareConfidence: Array.from({ length: 64 }, (_, i) => (i === 3 || i === 10 ? 0.4 : 0.99)), orientationUnsure: true, bottom: "black", grid: core.rotateGrid(cannedGrid) });
-$("scanRead").click();
-await sleep(80);
-stubBoard();
-check("uncertain squares are outlined", sboard().querySelectorAll(".sq.weak").length === 2);
-check("the unsure-orientation warning comes first", /Not sure which side is at the bottom/.test($("sNote").textContent));
-check("the reader's side-at-bottom is preselected", w.document.querySelector("input[name=sBottom]:checked").value === "black");
-w.document.querySelector("input[name=sBottom][value=white]").checked = true;
-w.document.querySelector("input[name=sBottom][value=white]").dispatchEvent(new w.Event("change"));
-check("once you choose, it stops nagging and mentions the outlined squares", /2 outlined squares/.test($("sNote").textContent), $("sNote").textContent);
-$("sPalette").querySelector('[data-tool="erase"]').click();
-let [ex, ey] = squareCenter(0, 3); mouse(sboard(), "pointerdown", ex, ey);
-check("touching an outlined square clears its outline", sboard().querySelectorAll(".sq.weak").length === 1);
-$("sBackToPic").click();
-check("Picture goes back to the picture, keeping the box", vis("scanPic") && !vis("scanResult"));
-nextResult = () => new Error("Could not load the board model (404)");
-$("scanRead").click();
-await sleep(80);
-check("an error shows the message with Try again / Back", vis("scanBusy") && /could not be read: Could not load/.test($("busyText").textContent) && !$("scanBusyErr").hidden && $("scanBusyCancel").hidden);
-nextResult = () => cannedResult();
-$("scanBusyRetry").click();
-await sleep(80);
-check("Try again reads it successfully", vis("scanResult"));
-$("sBackToPic").click();
+console.log("4b. shift+click, cancel, progress");
+await resetBoard();
+const askedBefore = asks().length;
+await screenSnapshot({ shift: true });
+check("Shift+click skips the page and reads the screen", asks().length === askedBefore && caps().length === 2);
+await resetBoard();
 nextResult = () => "hang";
-$("scanRead").click();
-await sleep(20);
-check("Cancel is offered while reading", !$("scanBusyCancel").hidden);
-$("scanBusyCancel").click();
-check("Cancel goes back to the picture", vis("scanPic"));
-nextResult = () => cannedResult();
-$("scanRetake").click();
-check("Other picture returns to the picker and releases the old one", vis("scanPick") && revoked.length >= 2);
-w.document.dispatchEvent(new w.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-check("undo/redo keys do nothing while the sheet is open", true);
-w.document.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-check("Escape closes the sheet", $("scan").hidden && !$("main").hidden);
+$("snap").dispatchEvent(new w.MouseEvent("click", { bubbles: true, shiftKey: true }));
+await waitFor(() => caps().length === 3);
+reply({ type: "captured", id: caps().at(-1).id, ok: true, dataUrl: PNG_URL });
+await waitFor(() => /Finding board/.test($("snapLabel").textContent));
+check("the button shows the stage while reading", /Finding board/.test($("snapLabel").textContent) && $("snap").classList.contains("busy") && $("snap").getAttribute("aria-busy") === "true");
+$("snap").click();
+check("clicking again cancels", idle() && /Cancelled/.test($("status").textContent));
+nextResult = () => result();
+await sleep(30);
+check("a late answer after cancelling is dropped", fenNow().startsWith(START) && $("scanNote").hidden);
 
-console.log("4h. bad input");
-$("scanBtn").click();
-$("scanFileInput").dispatchEvent(Object.assign(new w.Event("change"), {}));
+console.log("4c. what the note says when the reader is unsure");
+await resetBoard();
+nextResult = () => result({ squareConfidence: Array.from({ length: 64 }, (_, i) => (i === 3 || i === 10 ? 0.4 : 0.99)) });
+await screenSnapshot({ shift: true });
+check("uncertain squares are outlined on the board itself (white at the bottom: d8, c7)", weakNow() === "c7,d8", weakNow());
+check("the note warns and offers Edit and Select board", $("scanNote").classList.contains("warn") && /2 uncertain squares outlined/.test($("noteText").textContent) && noteActions().join() === "Edit,Select board…", noteActions().join());
+await resetBoard();
+nextResult = () => result({ bottom: "black", grid: core.rotateGrid(cannedGrid), squareConfidence: Array.from({ length: 64 }, (_, i) => (i === 3 || i === 10 ? 0.4 : 0.99)) });
+await screenSnapshot({ shift: true });
+check("black at the bottom: board shows Black's side and the FEN is still White's view", fenNow().startsWith(ITALIAN) && bv.squareName(0, 0) && boardEl.querySelector(".sq").dataset.sq === "h1", boardEl.querySelector(".sq").dataset.sq);
+check("outlines land on the right squares after the rotation (e1, f2)", weakNow() === "e1,f2", weakNow());
+await resetBoard();
+nextResult = () => result({ orientationUnsure: true });
+await screenSnapshot({ shift: true });
+check("unsure which side is at the bottom: says so and offers 'Wrong way up'", /Not sure which side is at the bottom/.test($("noteText").textContent) && noteActions().includes("Wrong way up"));
+clickAction("Wrong way up");
+check("it turns the position around: pieces rotated, board flipped", fenNow().startsWith(core.gridToPlacement(core.rotateGrid(cannedGrid))) && boardEl.querySelector(".sq").dataset.sq === "h1");
+check("and the note confirms, without nagging again", /Turned around/.test($("noteText").textContent) && !noteActions().includes("Wrong way up"));
+await resetBoard();
+$("noteClose").click();
+
+nextResult = () => result({ squareConfidence: Array.from({ length: 64 }, (_, i) => (i === 3 ? 0.4 : 0.99)) });
+await screenSnapshot({ shift: true });
+check("before dismissing: outlined", weakNow() === "d8");
+$("noteClose").click();
+check("dismissing the note also clears the outlines", $("scanNote").hidden && weakNow() === "");
+nextResult = () => result();
+
+console.log("4d. reads that cannot be a real position");
+await resetBoard();
+const noKing = core.placementToGrid("r1bq3r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ3R");
+nextResult = () => result({ grid: noKing });
+await screenSnapshot({ shift: true });
+check("missing king: the editor opens on what was read, with the reason", w.document.body.classList.contains("editing") && /Add the (white|black) king/.test($("eNote").textContent) && $("eDone").disabled, $("eNote").textContent);
+check("the board shows the read pieces for fixing", pieceAt("d8") === "Black queen" && pieceAt("e1") === null);
+check("nothing was analysed yet", !fenNow().includes("R1BQ3R"));
+$("ePalette").querySelector('[data-tool="K"]').click(); press("e1");
+$("ePalette").querySelector('[data-tool="k"]').click(); press("e8");
+check("fixing both kings enables Done", !$("eDone").disabled);
+$("eDone").click(); await sleep(20);
+check("Done analyses it", !w.document.body.classList.contains("editing") && fenNow().startsWith("r1bqk2r/") && fenNow().includes("R1BQK2R") && /edited on the panel/.test($("status").textContent));
+await resetBoard();
+nextResult = () => result({ grid: core.placementToGrid("8/8/8/8/8/8/8/8"), pieces: 0, confidence: 0.2 });
+await screenSnapshot({ shift: true });
+check("nothing board-like found: a clear message instead of an empty editor", !w.document.body.classList.contains("editing") && $("scanNote").classList.contains("err") && /could not find a chess board/.test($("noteText").textContent) && noteActions().includes("Select board…") && noteActions().includes("Choose a picture…"), $("noteText").textContent);
+nextResult = () => result();
+
+console.log("4e. failures say what to do");
+await resetBoard();
+{
+  const asked = asks().length, capped = caps().length;
+  $("snap").dispatchEvent(new w.MouseEvent("click", { bubbles: true, shiftKey: true }));
+  await waitFor(() => caps().length === capped + 1);
+  reply({ type: "captured", id: caps().at(-1).id, ok: false, error: "Chrome only allows capturing after you click the icon." });
+  await waitFor(idle);
+  check("capture refused: explained, and a picture can be chosen instead", $("scanNote").classList.contains("err") && /click the icon/.test($("noteText").textContent) && noteActions().join() === "Choose a picture…");
+}
+await resetBoard();
+nextResult = () => new Error("Could not load the board model (404)");
+await screenSnapshot({ shift: true });
+check("reader error: shown with Try again, Select board and Choose a picture", $("scanNote").classList.contains("err") && /could not be read: Could not load/.test($("noteText").textContent) && noteActions().join() === "Try again,Select board…,Choose a picture…", noteActions().join());
+nextResult = () => result();
+clickAction("Try again");
+await waitFor(idle, 3000);
+check("Try again reads the same picture successfully", fenNow().startsWith(ITALIAN) && !$("scanNote").classList.contains("err"));
+
+console.log("4f. selecting the board on the picture");
+await resetBoard();
+nextResult = () => result({ squareConfidence: Array.from({ length: 64 }, (_, i) => (i === 3 ? 0.4 : 0.99)) });
+await screenSnapshot({ shift: true });
+clickAction("Select board…");
+check("opens the crop view on the last picture", w.document.body.classList.contains("cropping") && $("cropImg").getAttribute("src") === created.at(-1));
+const img = $("cropImg");
+Object.defineProperty(img, "naturalWidth", { value: 1000, configurable: true });
+Object.defineProperty(img, "naturalHeight", { value: 500, configurable: true });
+img.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 100, width: 200, height: 100 });
+img.dispatchEvent(new w.Event("load"));
+check("the hint invites a box", /Drag a box/.test($("cropHint").textContent));
+const cm = (t, x, y) => mouse($("cropWrap"), t, x, y);
+cm("pointerdown", 20, 10); cm("pointermove", 120, 70); cm("pointerup", 120, 70);
+check("dragging draws the box", !$("cropBox").hidden && $("cropBox").style.left === "20px" && $("cropBox").style.width === "100px" && $("cropBox").style.height === "60px");
+cm("pointerdown", 40, 40); cm("pointerup", 41, 41);
+check("a plain click clears the box", $("cropBox").hidden);
+cm("pointerdown", 190, 90); cm("pointermove", 20, 10); cm("pointerup", 20, 10);
+check("dragging backwards works", $("cropBox").style.left === "20px" && $("cropBox").style.width === "170px");
+cm("pointerdown", 20, 10); cm("pointermove", 400, 300); cm("pointerup", 400, 300);
+check("the box is clamped to the picture", $("cropBox").style.width === "180px" && $("cropBox").style.height === "90px");
+cm("pointerdown", 20, 10); cm("pointermove", 120, 70); cm("pointerup", 120, 70);
+nextResult = () => result();
+$("cropRead").click();
+check("Read closes the view and reads", !w.document.body.classList.contains("cropping") && $("snap").classList.contains("busy"));
+await waitFor(idle, 3000);
+const cropMsg = FakeWorker.scan.sent.at(-1);
+check("only the boxed part is read (box in picture pixels)", cropMsg.crop.map(Math.round).join() === "100,50,600,350", JSON.stringify(cropMsg.crop));
+check("and the new result is on the board with no outlines", weakNow() === "" && fenNow().startsWith(ITALIAN));
+await resetBoard();
+nextResult = () => result({ squareConfidence: Array.from({ length: 64 }, (_, i) => (i === 3 ? 0.4 : 0.99)) });
+await screenSnapshot({ shift: true });
+clickAction("Select board…");
+$("cropCancel").click();
+check("Cancel leaves everything as it was", !w.document.body.classList.contains("cropping") && weakNow() === "d8");
+nextResult = () => result();
+
+console.log("4g. pictures from a file, the clipboard, drag-and-drop");
+await resetBoard();
+Object.defineProperty($("pictureInput"), "files", { value: [png()], configurable: true });
+$("pictureInput").dispatchEvent(new w.Event("change"));
+await waitFor(idle, 3000);
+check("choosing a file reads it straight away", fenNow().startsWith(ITALIAN) && /scanned from the picture/.test($("status").textContent) && /Scanned from the picture/.test($("noteText").textContent));
+await resetBoard();
+Object.defineProperty($("pictureInput"), "files", { value: [new w.File(["x"], "note.txt", { type: "text/plain" })], configurable: true });
+$("pictureInput").dispatchEvent(new w.Event("change"));
+check("a file that is not a picture is refused politely", $("scanNote").classList.contains("err") && /not a picture/.test($("noteText").textContent) && fenNow().startsWith(START));
+await resetBoard();
+w.document.dispatchEvent(Object.assign(new w.Event("paste", { bubbles: true, cancelable: true }), { clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => png() }] } }));
+await waitFor(idle, 3000);
+check("pasting an image anywhere reads it", fenNow().startsWith(ITALIAN) && /picture/.test($("status").textContent));
+await resetBoard();
 const dropEv = (files) => { const e = new w.Event("drop", { bubbles: true, cancelable: true }); e.dataTransfer = { types: ["Files"], files }; return e; };
-w.document.dispatchEvent(dropEv([new w.File(["x"], "note.txt", { type: "text/plain" })]));
-check("dropping a non-image is ignored", vis("scanPick"));
-$("scanFile").click();
 w.document.dispatchEvent(dropEv([png()]));
-check("dropping an image opens it", vis("scanPic"));
-$("picImg").dispatchEvent(new w.Event("error"));
-check("an image the browser cannot open gives a clear message", vis("scanPick") && /Could not open that picture/.test($("scanPickMsg").textContent));
-$("scanBack").click();
+await waitFor(idle, 3000);
+check("dropping an image anywhere reads it", fenNow().startsWith(ITALIAN));
+await resetBoard();
+w.document.dispatchEvent(Object.assign(new w.Event("paste", { bubbles: true, cancelable: true }), { clipboardData: { items: [{ kind: "string", type: "text/plain", getAsFile: () => null }] } }));
+check("pasting text is left alone (FEN box works as usual)", idle() && fenNow().startsWith(START));
+$("pictureBtn").click();
+check("the side button just opens the file chooser (no extra screens)", !w.document.body.classList.contains("cropping") && !w.document.body.classList.contains("editing"));
+setNav({ deviceMemory: 1 });
+nextResult = () => "hang";
+$("snap").dispatchEvent(new w.MouseEvent("click", { bubbles: true, shiftKey: true }));
+await waitFor(() => caps().length > 0 && /Capturing/.test($("snapLabel").textContent));
+check("a 1 GB device is told reading may be slow while it works", /little memory/.test($("status").textContent), $("status").textContent);
+$("snap").click();
+nextResult = () => result();
+setNav({});
 
-// the main panel still works after all that
-check("the panel's own board still shows 64 squares", w.document.querySelectorAll("#board .sq").length === 64);
+console.log("4h. editing any position on the board itself");
+await resetBoard();
+$("auto").checked = true; $("auto").onchange();
+const stops = FakeWorker.engine.sent.filter((m) => m === "stop").length;
+$("editBtn").click();
+check("Edit makes the same board editable (no separate screen)", w.document.body.classList.contains("editing") && P.editor.isOpen() && boardEl.querySelectorAll(".sq").length === 64 && pieceAt("e1") === "White king");
+check("the engine stops thinking about the old position", FakeWorker.engine.sent.filter((m) => m === "stop").length > stops);
+check("the palette has Move, 12 pieces and an eraser", $("ePalette").querySelectorAll("button.tool").length === 14 && $("ePalette").querySelector(".tool.on").dataset.tool === "move");
+check("turn and castling start from the position (White to move, all four rights)", w.document.querySelector("input[name=eTurn]:checked").value === "w" && ["eCK", "eCQ", "eCk", "eCq"].every((id) => $(id).checked && !$(id).disabled));
+check("Done is available for a legal position", !$("eDone").disabled);
+await reply({ type: "snapshot", fen: ITALIAN + " b - - 0 1", src: "page", auto: true });
+check("Auto-follow ticks are ignored while editing", fenNow().startsWith(START));
+$("ePalette").querySelector('[data-tool="Q"]').click();
+press("e5");
+check("palette + tap places a piece", pieceAt("e5") === "White queen");
+press("e5");
+check("tapping again with the same piece removes it", pieceAt("e5") === null);
+$("ePalette").querySelector('[data-tool="erase"]').click();
+press("a2");
+check("the eraser removes a piece", pieceAt("a2") === null);
+$("ePalette").querySelector('[data-tool="move"]').click();
+mouse(boardEl, "pointerdown", ...at("b2")); mouse(boardEl, "pointermove", ...at("b4")); mouse(boardEl, "pointerup", ...at("b4"));
+check("dragging moves a piece anywhere (no chess rules)", pieceAt("b2") === null && pieceAt("b4") === "White pawn");
+press("b4"); mouse(boardEl, "pointerdown", ...at("b5"));
+check("click then click moves it too", pieceAt("b5") === "White pawn" && pieceAt("b4") === null);
+mouse(boardEl, "pointerdown", ...at("c2")); mouse(boardEl, "pointerup", 999, 999);
+check("dropping a piece off the board removes it", pieceAt("c2") === null);
+mouse(boardEl, "pointerdown", ...at("e1")); mouse(boardEl, "pointerup", 999, 999);
+check("without the white king Done is disabled and the note says why", $("eDone").disabled && /white king/.test($("eNote").textContent) && $("eNote").classList.contains("err"));
+check("castling rights that depended on it are dropped", $("eCK").disabled && !$("eCK").checked);
+$("ePalette").querySelector('[data-tool="K"]').click(); press("e1");
+$("ePalette").querySelector('[data-tool="move"]').click();
+check("the king back: Done is available again", !$("eDone").disabled);
+$("eCK").checked = true; $("eCK").dispatchEvent(new w.Event("change"));
+w.document.querySelector("input[name=eTurn][value=b]").checked = true;
+w.document.querySelector("input[name=eTurn][value=b]").dispatchEvent(new w.Event("change"));
+$("eFlip").click();
+check("the board can be flipped while editing", boardEl.querySelector(".sq").dataset.sq === "h1");
+const beforeEdit = fenNow();
+$("eDone").click(); await sleep(30);
+check("Done: the edited position is on the board and being analysed", !w.document.body.classList.contains("editing") && fenNow().split(" ")[1] === "b" && fenNow().split(" ")[2].includes("K") && pieceAt("b5") === "White pawn" && pieceAt("c2") === null && FakeWorker.engine.sent.some((m) => String(m).startsWith("position fen " + fenNow().split(" ").slice(0, 2).join(" "))), fenNow());
+check("the view stays the way it was flipped", boardEl.querySelector(".sq").dataset.sq === "h1");
+check("Auto-follow was switched off so the page cannot overwrite the edit", $("auto").checked === false && /Auto-follow is off/.test($("status").textContent));
+$("undo").click(); await sleep(20);
+check("Undo goes back to the position before the edit", fenNow() === beforeEdit);
+$("flip").click();
+$("editBtn").click();
+$("ePalette").querySelector('[data-tool="erase"]').click(); press("d8");
+$("eCancel").click(); await sleep(20);
+check("Cancel discards the changes", !w.document.body.classList.contains("editing") && fenNow() === beforeEdit && pieceAt("d8") === "Black queen");
+check("and the engine resumes on the real position", FakeWorker.engine.sent.filter((m) => String(m).startsWith("position fen " + beforeEdit.split(" ").slice(0, 2).join(" "))).length >= 2);
+$("editBtn").click();
+w.document.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+check("Escape cancels the editor", !w.document.body.classList.contains("editing"));
+$("editBtn").click();
+w.document.dispatchEvent(new w.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+check("undo/redo keys do nothing while editing", w.document.body.classList.contains("editing"));
+$("eClear").click();
+check("Clear empties the board", boardEl.querySelectorAll(".sq img").length === 0 && $("eDone").disabled);
+$("eCancel").click();
+
+check("the panel's own board still plays moves after all that", (() => { press("e2"); press("e4"); return fenNow().includes("4P3") || fenNow().includes("/4P3/"); })());
 
 // ---------------- 5. host: taking the picture ----------------
 console.log("5. host page capture");
@@ -375,7 +455,7 @@ let sentToBg = [];
 let bgAnswer = { ok: true, dataUrl: "data:image/png;base64,AAAA" };
 let visibleDuringCapture = null;
 hw.chrome = { runtime: { getURL: (p) => `chrome-extension://abc/${p}`, lastError: undefined,
-  sendMessage: (m, cb) => { sentToBg.push(m); visibleDuringCapture = host.style.visibility; setTimeout(() => cb && cb(bgAnswer), 0); } } };
+  sendMessage: (m, cb) => { sentToBg.push(m); if (m.type === "capture") visibleDuringCapture = host.style.visibility; setTimeout(() => cb && cb(m.type === "capture" ? bgAnswer : null), 0); } } };
 hw.eval(fs.readFileSync(`${COPY}/content.js`, "utf8"));
 const host = [...hw.document.documentElement.children].find((e) => e.tagName === "DIV");
 const frame = host.querySelector("iframe");
@@ -403,14 +483,22 @@ hw.dispatchEvent(new hw.MessageEvent("message", { data: { type: "capture", id: 1
 await sleep(150);
 check("capture requests from other origins are ignored", !toPanel.some((m) => m.id === 10));
 
+fromPanel({ type: "snapshot", auto: false, id: 41 });
+await sleep(100);
+check("a Snapshot request is answered with the same id (so the panel can match it)", toPanel.some((m) => m.type === "snapshot" && m.id === 41 && m.auto === false), JSON.stringify(toPanel.slice(-2)));
+toPanel.length = 0;
+fromPanel({ type: "snapshot", auto: true });
+await sleep(100);
+check("Auto-follow requests carry no id", toPanel.some((m) => m.type === "snapshot" && m.auto === true && m.id === undefined));
+
 // ---------------- 6. manifest sanity ----------------
 console.log("6. manifest");
 const man = JSON.parse(fs.readFileSync(`${COPY}/manifest.json`, "utf8"));
 check("only activeTab/scripting/storage, no blanket host access", JSON.stringify(man.permissions.sort()) === '["activeTab","scripting","storage"]' && !man.host_permissions);
 check("wasm allowed for extension pages", /wasm-unsafe-eval/.test(man.content_security_policy.extension_pages));
 const war = man.web_accessible_resources[0].resources.join(" ");
-check("scanner files are web accessible", /scanner\/\*/.test(war) && /scan-ui\.js/.test(war));
-for (const f of ["scanner/core.js", "scanner/engine.js", "scanner/runner.js", "scanner/worker.js", "scanner/client.js", "scan-ui.js"]) check(`${f} exists`, fs.existsSync(`${SRC}/${f}`));
+check("scanner files are web accessible", /scanner\/\*/.test(war) && /editor\.js/.test(war) && /board-view\.js/.test(war));
+for (const f of ["scanner/core.js", "scanner/engine.js", "scanner/runner.js", "scanner/worker.js", "scanner/client.js", "board-view.js", "editor.js", "scan-flow.js", "crop-ui.js", "engine-client.js", "links.js", "notation.js", "settings.js"]) check(`${f} exists`, fs.existsSync(`${SRC}/${f}`));
 for (const f of ["scanner/models/board.onnx", "scanner/models/locator.onnx", "scanner/ort/ort.wasm.min.mjs", "scanner/ort/ort-wasm-simd-threaded.wasm", "scanner/ort/ort-wasm-simd-threaded.mjs"]) check(`${f} is shipped`, fs.existsSync(`${SRC}/${f}`) && fs.statSync(`${SRC}/${f}`).size > 10000);
 
 console.log(fail ? `\n${fail} SCAN CHECK(S) FAILED` : "\nSCAN CHECKS PASSED");

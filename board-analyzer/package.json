@@ -1,6 +1,6 @@
 {
   "name": "board-analyzer",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "description": "Board Analyzer Chrome extension. This file only exists for tests and packaging; Chrome ignores it.",

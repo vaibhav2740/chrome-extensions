@@ -321,7 +321,7 @@
     const d = e.data || {};
     if (d.type === 'snapshot') {
       const s = await snapshot();
-      frame.contentWindow.postMessage({ type: 'snapshot', ...s, auto: !!d.auto }, panelOrigin);
+      frame.contentWindow.postMessage({ type: 'snapshot', ...s, auto: !!d.auto, id: d.id }, panelOrigin);
     } else if (d.type === 'capture') {
       const res = await captureVisibleTab();
       frame.contentWindow.postMessage({ type: 'captured', id: d.id, ...res }, panelOrigin);
