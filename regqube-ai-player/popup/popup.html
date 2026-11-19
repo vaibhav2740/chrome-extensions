@@ -104,6 +104,12 @@
         <input type="range" id="thinkingDelay" min="0" max="4000" step="50" value="300">
       </div>
 
+      <label class="row switch-row">
+        <span class="row-text"><span class="row-title">Background play</span><span class="hint">Prevents idle kicks and keeps the game active when you switch to Slack</span></span>
+        <input type="checkbox" id="backgroundPlay" role="switch">
+        <span class="slider" aria-hidden="true"></span>
+      </label>
+
       <div class="row column">
         <div class="row-line"><span class="row-title">AI provider</span></div>
         <div class="segmented" role="radiogroup" aria-label="AI provider">
@@ -112,6 +118,16 @@
           <label><input type="radio" name="provider" value="gemini"><span>Gemini</span></label>
         </div>
         <span class="hint">Auto picks the fastest healthy one and falls back if a limit is hit.</span>
+      </div>
+
+      <div class="row column">
+        <div class="row-line"><span class="row-title">Widget style</span></div>
+        <div class="segmented" role="radiogroup" aria-label="Widget style">
+          <label><input type="radio" name="glass" value="auto"><span>Auto</span></label>
+          <label><input type="radio" name="glass" value="on"><span>Glass</span></label>
+          <label><input type="radio" name="glass" value="off"><span>Basic</span></label>
+        </div>
+        <span class="hint">Glass blurs the game behind the widget. Basic is a solid panel that is lighter on weak devices. Auto decides for you.</span>
       </div>
     </section>
 

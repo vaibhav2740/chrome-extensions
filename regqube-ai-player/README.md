@@ -18,6 +18,9 @@ Keys are never stored in this repo. Either paste them in the popup (**API keys &
 - It only acts when the answer box says it's your turn, never touches the chat box, and only runs on krillion.io, regqube.com and localhost.
 - Only the category text and already-used answers are sent to the AI providers.
 
+## Widget style
+**Glass** blurs the game behind the widget; **Basic** is a solid panel that is lighter on weak devices (the blur is recomputed while the game animates). **Auto** (default) picks Basic for "reduce transparency" users and very low-end devices. Set it in the popup under *Widget style*.
+
 ## Diagnostics
 The gear button in the widget copies a diagnostics report (detected category, chips, recent events) to the clipboard — handy for bug reports.
 

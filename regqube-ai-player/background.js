@@ -43,7 +43,7 @@ function isDeprecatedModel(model) {
 }
 
 async function migrateSettings() {
-  const current = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "modelMigrated", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "provider", "humanTyping", "typingWpm"]);
+  const current = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "modelMigrated", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "provider", "humanTyping", "typingWpm", "backgroundPlay"]);
   const updates = {};
 
   // Seed keys only when never set. An empty string is a deliberate "disabled", not "missing".
@@ -63,6 +63,7 @@ async function migrateSettings() {
   if (current.showHud === undefined) updates.showHud = true;
   if (current.humanTyping === undefined) updates.humanTyping = false;
   if (current.typingWpm === undefined) updates.typingWpm = 100;
+  if (current.backgroundPlay === undefined) updates.backgroundPlay = true;
 
   if (Object.keys(updates).length > 0) {
     await chrome.storage.local.set(updates);

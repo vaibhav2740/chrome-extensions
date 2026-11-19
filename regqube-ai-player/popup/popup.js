@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const autoPlayInput = $("autoPlay");
   const showHudInput = $("showHud");
   const humanTypingInput = $("humanTyping");
+  const backgroundPlayInput = $("backgroundPlay");
   const typingWpmInput = $("typingWpm");
   const wpmRow = $("wpmRow");
   const wpmValueSpan = $("wpmValue");
@@ -29,6 +30,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const statsLine = $("apiStats");
   const gameStatsEl = $("gameStats");
   const providerRadios = Array.from(document.querySelectorAll('input[name="provider"]'));
+  const glassRadios = Array.from(document.querySelectorAll('input[name="glass"]'));
 
   const MAX_INJECT_ATTEMPTS = 2;
   const REFRESH_MS = 1500;
@@ -38,11 +40,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ---------------------------------------------------------------------------
   // Settings: load once, then every change autosaves (no Save button to forget).
   // ---------------------------------------------------------------------------
-  const settings = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "provider", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "humanTyping", "typingWpm"]);
+  const settings = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "provider", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "humanTyping", "typingWpm", "glassMode", "backgroundPlay"]);
 
   autoPlayInput.checked = settings.autoWrite !== undefined ? !!settings.autoWrite : !!settings.autoPlay;
   showHudInput.checked = settings.showHud !== undefined ? !!settings.showHud : true;
   humanTypingInput.checked = !!settings.humanTyping;
+  backgroundPlayInput.checked = settings.backgroundPlay !== undefined ? !!settings.backgroundPlay : true;
   const updateWpmVisibility = () => {
     if (wpmRow) wpmRow.style.display = humanTypingInput.checked ? "flex" : "none";
   };
@@ -64,6 +67,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof settings.groqApiKey === "string") groqApiKeyInput.value = settings.groqApiKey;
   const provider = ["auto", "groq", "gemini"].includes(settings.provider) ? settings.provider : "auto";
   providerRadios.forEach((r) => { r.checked = r.value === provider; });
+  const glassMode = ["auto", "on", "off"].includes(settings.glassMode) ? settings.glassMode : "auto";
+  glassRadios.forEach((r) => { r.checked = r.value === glassMode; });
 
   function showStatus(text, color) {
     statusMsg.textContent = text;
@@ -80,10 +85,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       autoPlay: autoPlayInput.checked,
       showHud: showHudInput.checked,
       humanTyping: humanTypingInput.checked,
+      backgroundPlay: backgroundPlayInput.checked,
       typingWpm: parseInt(typingWpmInput.value, 10) || 100,
       thinkingDelay: parseInt(thinkingDelayInput.value, 10) || 0,
       model: modelSelect.value,
       provider: chosen ? chosen.value : "auto",
+      glassMode: (glassRadios.find((r) => r.checked) || { value: "auto" }).value,
       apiKey: apiKeyInput.value.trim(),
       groqApiKey: groqKey,
     });
@@ -103,7 +110,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   thinkingDelayInput.addEventListener("input", () => {
     updateDelayLabel(thinkingDelayInput.value);
   });
-  [autoPlayInput, showHudInput, humanTypingInput, typingWpmInput, thinkingDelayInput, modelSelect, apiKeyInput, groqApiKeyInput, ...providerRadios]
+  [autoPlayInput, showHudInput, humanTypingInput, backgroundPlayInput, typingWpmInput, thinkingDelayInput, modelSelect, apiKeyInput, groqApiKeyInput, ...providerRadios, ...glassRadios]
     .forEach((el) => el.addEventListener("change", scheduleSave));
 
   function bindVisibilityToggle(btn, input) {

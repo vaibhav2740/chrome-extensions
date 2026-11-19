@@ -62,7 +62,9 @@
     thinkingDelay: 300,
     humanTyping: false,
     typingWpm: 100,
+    backgroundPlay: true,
     showHud: true,
+    glassMode: "auto",        // "auto" | "on" | "off": blur effect vs solid panel (blur is costly over a live game canvas)
     tornDown: false,
 
     epoch: 0,                 // bumps whenever the round changes; invalidates all in-flight async work
@@ -133,10 +135,10 @@
   }
 
   // Hidden/occluded tabs get their timers throttled (>=1s). The background worker's timers are not, so while
-  // the tab is hidden we let it do the waiting for us.
+  // the tab is hidden we let it do long waits (>80ms) for us. Micro-sleeps (<80ms) run directly to avoid IPC overhead.
   const sleepRaw = (ms) => new Promise((r) => setTimeout(r, ms));
   function sleep(ms) {
-    if (document.hidden && extensionAlive()) {
+    if (ms >= 80 && document.hidden && extensionAlive()) {
       return chrome.runtime.sendMessage({ type: "SLEEP", ms }).then(() => {}, () => sleepRaw(ms));
     }
     return sleepRaw(ms);
@@ -256,13 +258,16 @@
   // ---------------------------------------------------------------------------
   // Settings
   // ---------------------------------------------------------------------------
-  chrome.storage.local.get(["autoWrite", "autoPlay", "thinkingDelay", "showHud", "submitMethod", "humanTyping", "typingWpm"]).then((res) => {
+  chrome.storage.local.get(["autoWrite", "autoPlay", "thinkingDelay", "showHud", "submitMethod", "humanTyping", "typingWpm", "glassMode", "backgroundPlay"]).then((res) => {
     if (typeof res.submitMethod === "string") S.preferredMethod = res.submitMethod;
     S.autoWrite = res.autoWrite !== undefined ? !!res.autoWrite : !!res.autoPlay;
     if (res.thinkingDelay !== undefined) S.thinkingDelay = Number(res.thinkingDelay) || 0;
     if (res.showHud !== undefined) S.showHud = !!res.showHud;
     if (res.humanTyping !== undefined) S.humanTyping = !!res.humanTyping;
     if (res.typingWpm !== undefined) S.typingWpm = Number(res.typingWpm) || 100;
+    if (res.backgroundPlay !== undefined) S.backgroundPlay = !!res.backgroundPlay;
+    if (["auto", "on", "off"].includes(res.glassMode)) S.glassMode = res.glassMode;
+    updateBackgroundKeepAlive();
     scheduleTick();
   }).catch(() => {});
 
@@ -273,6 +278,11 @@
     if (changes.thinkingDelay) S.thinkingDelay = Number(changes.thinkingDelay.newValue) || 0;
     if (changes.humanTyping) S.humanTyping = !!changes.humanTyping.newValue;
     if (changes.typingWpm) S.typingWpm = Number(changes.typingWpm.newValue) || 100;
+    if (changes.backgroundPlay) {
+      S.backgroundPlay = !!changes.backgroundPlay.newValue;
+      updateBackgroundKeepAlive();
+    }
+    if (changes.glassMode) S.glassMode = ["auto", "on", "off"].includes(changes.glassMode.newValue) ? changes.glassMode.newValue : "auto";
     if (changes.showHud) {
       S.showHud = !!changes.showHud.newValue;
       hudMode = "auto";
@@ -961,8 +971,8 @@
     // Base delay per character from WPM formula: (60,000 ms / (WPM * 5 chars)) = 12,000 / WPM
     let baseDelay = 12000 / Math.max(30, Math.min(wpm, 250));
 
-    // Panic override: On retry attempts after a rejection, typist goes into fast reflex mode (2.2x speed)
-    if (isRetry) baseDelay = Math.max(25, baseDelay / 2.2);
+    // Panic override: On retry attempts after a rejection or when tab is hidden in background, typist accelerates to fast reflex mode
+    if (isRetry || (document.hidden && S.backgroundPlay)) baseDelay = Math.max(22, baseDelay / 2.4);
 
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
     let typedSoFar = "";
@@ -1206,6 +1216,8 @@
         const jitter = (Math.random() * 2 - 1) * (rawDelay * 0.3);
         delay = Math.max(40, Math.round(rawDelay + jitter));
       }
+      // Background fast-path: When hidden, clamp thinking delay to <= 50ms so the fuse never burns while user is in Slack
+      if (document.hidden && S.backgroundPlay) delay = Math.min(delay, 50);
       if (delay) await sleep(delay);
 
       const turnStartTime = now();
@@ -1475,6 +1487,19 @@
   }
 
   // Build lazily, then keep display in sync (so the HUD disappears if the SPA navigates off the game page).
+  // Backdrop blur is re-computed whenever what is behind it changes, and the game canvas animates constantly, so on weak
+  // devices it is worth being able to switch it off. Auto: off for "reduce transparency" users and very low-end devices.
+  function effectiveGlass() {
+    if (S.glassMode === "on") return true;
+    if (S.glassMode === "off") return false;
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-transparency: reduce)").matches) return false;
+      if (navigator.deviceMemory && navigator.deviceMemory <= 2) return false;
+      if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) return false;
+    } catch (e) { /* unknown: assume capable */ }
+    return true;
+  }
+
   function ensureHud() {
     const show = hudShouldShow();
     if (!hud || !hud.isConnected) {
@@ -1483,6 +1508,7 @@
     }
     const display = show ? "block" : "none";
     if (hud.style.display !== display) hud.style.display = display;
+    hud.classList.toggle("ai-basic", !effectiveGlass());
   }
 
   function clampHud() {
@@ -1794,6 +1820,100 @@
   } catch (e) { /* best effort */ }
 
   // ---------------------------------------------------------------------------
+  // Anti-Idle & Tab Priority Engine (Slack/Background Play Protection)
+  // Prevents Krillion from flagging the player as AFK ("left cuz idle") and prevents
+  // Chrome from throttling timers or suspending WebSockets while user is in other apps.
+  // ---------------------------------------------------------------------------
+  let audioKeepAliveCtx = null;
+  let antiIdleTimer = 0;
+
+  function startAudioKeepAlive() {
+    if (audioKeepAliveCtx || !S.backgroundPlay) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 440;
+      // Inaudible gain (1e-5): zero perceptible sound, but satisfies Chrome's media heuristic
+      // to grant active media status and exempt the tab from timer throttling and socket suspension.
+      gain.gain.value = 0.00001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      audioKeepAliveCtx = ctx;
+
+      const resumeOnGesture = () => {
+        if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      };
+      ["click", "keydown", "pointerdown"].forEach((evt) => {
+        document.addEventListener(evt, resumeOnGesture, { capture: true, passive: true });
+        cleanups.push(() => document.removeEventListener(evt, resumeOnGesture, { capture: true }));
+      });
+    } catch (e) {
+      /* best effort: audio context might be restricted */
+    }
+  }
+
+  function stopAudioKeepAlive() {
+    if (audioKeepAliveCtx) {
+      try { audioKeepAliveCtx.close(); } catch (e) {}
+      audioKeepAliveCtx = null;
+    }
+  }
+
+  function pulseActivity() {
+    if (S.tornDown || !S.backgroundPlay || !isGameDetected()) return;
+    try {
+      const w = window.innerWidth || 1024;
+      const h = window.innerHeight || 768;
+      const x = Math.floor(w * (0.2 + Math.random() * 0.6));
+      const y = Math.floor(h * (0.2 + Math.random() * 0.6));
+
+      // 1. Synthetic pointer & mouse moves across game viewport
+      const pInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 1, pointerType: "mouse", isPrimary: true };
+      window.dispatchEvent(new PointerEvent("pointermove", pInit));
+      document.dispatchEvent(new PointerEvent("pointermove", pInit));
+
+      const mInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, buttons: 0 };
+      window.dispatchEvent(new MouseEvent("mousemove", mInit));
+      document.dispatchEvent(new MouseEvent("mousemove", mInit));
+
+      // 2. Benign modifier key pulse (Shift keydown/keyup): resets game inactivity listeners without typing text
+      const input = getGameInput();
+      const target = (input && input.isConnected) ? input : window;
+      const shiftOpts = { key: "Shift", code: "ShiftLeft", keyCode: 16, which: 16, bubbles: true, cancelable: true, composed: true };
+      target.dispatchEvent(new KeyboardEvent("keydown", shiftOpts));
+      target.dispatchEvent(new KeyboardEvent("keyup", shiftOpts));
+    } catch (e) {
+      /* best effort */
+    }
+  }
+
+  function scheduleAntiIdlePulse() {
+    clearTimeout(antiIdleTimer);
+    if (!S.backgroundPlay) return;
+    // Pulse every 9 - 14 seconds with jitter
+    const delay = 9000 + Math.random() * 5000;
+    antiIdleTimer = setTimeout(() => {
+      pulseActivity();
+      scheduleAntiIdlePulse();
+    }, delay);
+  }
+
+  function updateBackgroundKeepAlive() {
+    if (S.backgroundPlay) {
+      startAudioKeepAlive();
+      scheduleAntiIdlePulse();
+    } else {
+      stopAudioKeepAlive();
+      clearTimeout(antiIdleTimer);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Teardown (extension reloaded/updated while the page stays open)
   // ---------------------------------------------------------------------------
   function teardown(reason) {
@@ -1803,6 +1923,8 @@
     clearInterval(S.heartbeat);
     clearTimeout(S.tickTimer);
     clearTimeout(gameStatsTimer);
+    clearTimeout(antiIdleTimer);
+    stopAudioKeepAlive();
     observer.disconnect();
     for (const fn of cleanups) {
       try { fn(); } catch (e) { /* context already gone */ }
@@ -1813,5 +1935,6 @@
   }
 
   log(`v${VERSION} ready`);
+  updateBackgroundKeepAlive();
   scheduleTick();
 })();
