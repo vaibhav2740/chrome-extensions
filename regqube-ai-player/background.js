@@ -24,14 +24,19 @@ const OLD_DEFAULT_MODEL = "gemini-3-flash-preview";
 
 chrome.runtime.onInstalled.addListener(async () => {
   await migrateSettings();
+  // Belt-and-suspenders keep-alive: wakes the worker every 24s even if all game tabs close.
+  chrome.alarms.create("keepalive", { periodInMinutes: 0.4 });
 });
+
+// The alarm handler is intentionally a no-op; its only purpose is to wake the service worker.
+chrome.alarms.onAlarm.addListener(() => {});
 
 function isDeprecatedModel(model) {
   return !model || /(^|[-.])(1\.5|2\.0|2\.5)([-.]|$)/.test(model);
 }
 
 async function migrateSettings() {
-  const current = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "modelMigrated", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "provider"]);
+  const current = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "modelMigrated", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "provider", "humanTyping", "typingWpm"]);
   const updates = {};
 
   // Seed keys only when never set. An empty string is a deliberate "disabled", not "missing".
@@ -49,6 +54,8 @@ async function migrateSettings() {
   if (current.autoPlay === undefined) updates.autoPlay = false;
   if (current.thinkingDelay === undefined) updates.thinkingDelay = 300;
   if (current.showHud === undefined) updates.showHud = true;
+  if (current.humanTyping === undefined) updates.humanTyping = false;
+  if (current.typingWpm === undefined) updates.typingWpm = 100;
 
   if (Object.keys(updates).length > 0) {
     await chrome.storage.local.set(updates);
@@ -92,13 +99,38 @@ function cleanAnswer(raw) {
   return a;
 }
 
+function stemPlural(word) {
+  if (!word || word.length <= 3) return word;
+  const parts = word.split(" ");
+  const last = parts[parts.length - 1];
+  if (last.length <= 3) return word;
+  let stemmed = last;
+  if (/sses$/i.test(last)) {
+    stemmed = last.slice(0, -2);
+  } else if (/series|species/i.test(last)) {
+    return word;
+  } else if (/ies$/i.test(last) && last.length > 4) {
+    stemmed = last.slice(0, -3) + "y";
+  } else if (/(?:ch|sh|x|z)es$/i.test(last)) {
+    stemmed = last.slice(0, -2);
+  } else if (/s$/i.test(last) && !/(?:ss|us|is|as|os)$/i.test(last)) {
+    stemmed = last.slice(0, -1);
+  }
+  if (stemmed !== last) {
+    parts[parts.length - 1] = stemmed;
+    return parts.join(" ");
+  }
+  return word;
+}
+
 function normalizeKey(str) {
-  return String(str || "")
+  const base = String(str || "")
     .toLowerCase()
     .trim()
     .replace(/^(the|a|an)\s+/i, "")
     .replace(/[^\w\s]/g, "")
     .replace(/\s+/g, " ");
+  return stemPlural(base);
 }
 
 function cleanAnswerList(list, forbidden = []) {
@@ -137,12 +169,6 @@ function parseAnswerList(raw) {
     }
   }
   return stripped.split("\n");
-}
-
-function thinkingConfigFor(model, variant) {
-  if (variant === "none") return undefined;
-  if (/gemini-3/.test(model)) return { thinkingLevel: "minimal" };
-  return { thinkingBudget: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -500,13 +526,14 @@ async function requestBatch(q, avoid) {
 List 24 different answers that fit this category.${avoidText}
 Rules:
 - Every answer must be a real, correctly spelled, widely recognised member of the category. Never invent or guess.
+- Answers must be entries a standard English trivia database would include — no jargon, technical names, or regional slang.
 - Prefer well-known answers that a standard answer list would accept; no obscure or borderline items.
 - Order from most widely recognised to less recognised.
 - Each answer is 1 to 3 words, with no explanations.
 - Return only a JSON array of strings.`;
   const groqMessages = [
     { role: "system", content: "You are playing a fast trivia elimination game. Reply ONLY with a valid JSON array of strings: [\"Answer 1\", \"Answer 2\", ...]" },
-    { role: "user", content: `Category: ${q}\nProvide 24 different, widely recognised, correctly spelled answers, most well-known first.${avoidText}\nSTRICT: Return ONLY the JSON array of strings, 1 to 3 words per answer.` },
+    { role: "user", content: `Category: ${q}\nProvide 24 different, widely recognised, correctly spelled answers that a standard English trivia database would include. Most well-known first.${avoidText}\nSTRICT: Return ONLY the JSON array of strings, 1 to 3 words per answer.` },
   ];
 
   const deadline = Date.now() + BATCH_BUDGET_MS;

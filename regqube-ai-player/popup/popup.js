@@ -12,6 +12,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const autoPlayInput = $("autoPlay");
   const showHudInput = $("showHud");
+  const humanTypingInput = $("humanTyping");
+  const typingWpmInput = $("typingWpm");
+  const wpmValueSpan = $("wpmValue");
+  const wpmHintSpan = $("wpmHint");
   const thinkingDelayInput = $("thinkingDelay");
   const delayValueSpan = $("delayValue");
   const modelSelect = $("model");
@@ -22,6 +26,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const clearMemoryBtn = $("clearMemoryBtn");
   const statusMsg = $("statusMsg");
   const statsLine = $("apiStats");
+  const gameStatsEl = $("gameStats");
   const providerRadios = Array.from(document.querySelectorAll('input[name="provider"]'));
 
   const MAX_INJECT_ATTEMPTS = 2;
@@ -32,12 +37,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   // ---------------------------------------------------------------------------
   // Settings: load once, then every change autosaves (no Save button to forget).
   // ---------------------------------------------------------------------------
-  const settings = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "provider", "autoWrite", "autoPlay", "thinkingDelay", "showHud"]);
+  const settings = await chrome.storage.local.get(["apiKey", "groqApiKey", "model", "provider", "autoWrite", "autoPlay", "thinkingDelay", "showHud", "humanTyping", "typingWpm"]);
 
   autoPlayInput.checked = settings.autoWrite !== undefined ? !!settings.autoWrite : !!settings.autoPlay;
   showHudInput.checked = settings.showHud !== undefined ? !!settings.showHud : true;
+  humanTypingInput.checked = !!settings.humanTyping;
+  if (settings.typingWpm !== undefined) typingWpmInput.value = settings.typingWpm;
+  const updateWpmLabel = (w) => {
+    const n = parseInt(w, 10) || 100;
+    wpmValueSpan.textContent = `${n} WPM`;
+    const ms = Math.round(12000 / n);
+    if (wpmHintSpan) wpmHintSpan.textContent = `~${ms}ms per key with natural human rhythm`;
+  };
+  updateWpmLabel(typingWpmInput.value);
   if (settings.thinkingDelay !== undefined) thinkingDelayInput.value = settings.thinkingDelay;
-  delayValueSpan.textContent = `${thinkingDelayInput.value}ms`;
+  const updateDelayLabel = (v) => { delayValueSpan.textContent = parseInt(v, 10) === 0 ? "0ms (instant)" : `${v}ms`; };
+  updateDelayLabel(thinkingDelayInput.value);
   if (settings.model) modelSelect.value = settings.model;
   if (typeof settings.apiKey === "string") apiKeyInput.value = settings.apiKey;
   if (typeof settings.groqApiKey === "string") groqApiKeyInput.value = settings.groqApiKey;
@@ -58,6 +73,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       autoWrite: autoPlayInput.checked,
       autoPlay: autoPlayInput.checked,
       showHud: showHudInput.checked,
+      humanTyping: humanTypingInput.checked,
+      typingWpm: parseInt(typingWpmInput.value, 10) || 100,
       thinkingDelay: parseInt(thinkingDelayInput.value, 10) || 0,
       model: modelSelect.value,
       provider: chosen ? chosen.value : "auto",
@@ -74,10 +91,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     saveTimer = setTimeout(saveSettings, 250);
   }
 
-  thinkingDelayInput.addEventListener("input", () => {
-    delayValueSpan.textContent = `${thinkingDelayInput.value}ms`;
+  typingWpmInput.addEventListener("input", () => {
+    updateWpmLabel(typingWpmInput.value);
   });
-  [autoPlayInput, showHudInput, thinkingDelayInput, modelSelect, apiKeyInput, groqApiKeyInput, ...providerRadios]
+  thinkingDelayInput.addEventListener("input", () => {
+    updateDelayLabel(thinkingDelayInput.value);
+  });
+  [autoPlayInput, showHudInput, humanTypingInput, typingWpmInput, thinkingDelayInput, modelSelect, apiKeyInput, groqApiKeyInput, ...providerRadios]
     .forEach((el) => el.addEventListener("change", scheduleSave));
 
   function bindVisibilityToggle(btn, input) {
@@ -231,8 +251,20 @@ document.addEventListener("DOMContentLoaded", async () => {
       const limited = res.blocked?.length > 0;
       statsLine.textContent = `Today: ${st.calls || 0} requests · ${st.rateLimited || 0} rate-limited · ${st.cacheHits || 0} from cache`;
       statsLine.classList.toggle("warn", limited);
+
+      try {
+        const { gameStats: gs } = await chrome.storage.local.get("gameStats");
+        if (gs && (gs.rounds || gs.accepted || gs.rejected)) {
+          gameStatsEl.textContent = `Session: ${gs.rounds || 0} rounds · ${gs.accepted || 0} accepted · ${gs.rejected || 0} rejected`;
+        } else {
+          gameStatsEl.textContent = "";
+        }
+      } catch (e) {
+        gameStatsEl.textContent = "";
+      }
     } catch (e) {
       statsLine.textContent = "";
+      if (gameStatsEl) gameStatsEl.textContent = "";
     }
   }
 

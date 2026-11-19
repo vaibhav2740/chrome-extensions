@@ -81,13 +81,28 @@
         <span class="slider" aria-hidden="true"></span>
       </label>
 
+      <label class="row switch-row">
+        <span class="row-text"><span class="row-title">Human writer</span><span class="hint">Simulates real keystrokes instead of instant pasting</span></span>
+        <input type="checkbox" id="humanTyping" role="switch">
+        <span class="slider" aria-hidden="true"></span>
+      </label>
+
+      <div class="row column" id="wpmRow">
+        <div class="row-line">
+          <label class="row-title" for="typingWpm">Typing speed</label>
+          <span class="value-chip" id="wpmValue">100 WPM</span>
+        </div>
+        <input type="range" id="typingWpm" min="40" max="180" step="10" value="100">
+        <span class="hint" id="wpmHint">~120ms per key with natural human rhythm</span>
+      </div>
+
       <div class="row column">
         <div class="row-line">
           <label class="row-title" for="thinkingDelay">Typing delay</label>
           <span class="value-chip" id="delayValue">300ms</span>
         </div>
-        <input type="range" id="thinkingDelay" min="100" max="4000" step="50" value="300">
-              </div>
+        <input type="range" id="thinkingDelay" min="0" max="4000" step="50" value="300">
+      </div>
 
       <div class="row column">
         <div class="row-line"><span class="row-title">AI provider</span></div>
@@ -135,6 +150,7 @@
       <button id="clearMemoryBtn" class="btn btn-secondary">Clear past memory</button>
     </div>
 
+    <div id="gameStats" class="stats-line"></div>
     <div id="apiStats" class="stats-line"></div>
     <div id="statusMsg" class="status-msg" role="status" aria-live="polite"></div>
 

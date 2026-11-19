@@ -37,8 +37,19 @@
   const MAX_EMPTY_YIELDS = 3;        // stop auto-refilling after this many "nothing new" responses
   const MEMORY_GOOD_LIMIT = 120;
   const MEMORY_BAD_LIMIT = 200;
+  const MEMORY_CANDIDATES_LIMIT = 60;
   const BAD_FORBID_COUNT = 2;        // a word rejected this many times is never offered again
   const INTERMISSION_PHASES = /^(door|lobby|over|gameover|game-over|results|end|ended)$/i;
+
+  function getPlayerCount() {
+    return document.querySelectorAll(".pf-say").length || 4;
+  }
+  function getPoolLowWater() {
+    return getPlayerCount() <= 2 ? 3 : POOL_LOW_WATER;
+  }
+  function getMaxEmptyYields() {
+    return getPlayerCount() <= 2 ? 5 : MAX_EMPTY_YIELDS;
+  }
 
   const COLORS = { info: "#818cf8", ok: "#34d399", warn: "#f59e0b", bad: "#ef4444", idle: "#94a3b8", act: "#38bdf8" };
   const NO_CATEGORY_MSG = "Your turn, but no category found — click ⚙ for diagnostics";
@@ -49,6 +60,8 @@
   const S = {
     autoWrite: false,
     thinkingDelay: 300,
+    humanTyping: false,
+    typingWpm: 100,
     showHud: true,
     tornDown: false,
 
@@ -130,6 +143,26 @@
   }
   const now = () => performance.now();
 
+  // ---------------------------------------------------------------------------
+  // Game-level telemetry (stored in chrome.storage.local for popup readout)
+  // ---------------------------------------------------------------------------
+  const dayKey = () => new Date().toISOString().slice(0, 10);
+  const freshGameStats = () => ({ day: dayKey(), rounds: 0, turns: 0, accepted: 0, rejected: 0, fallbacks: 0 });
+  let gameStats = freshGameStats();
+  let gameStatsTimer = 0;
+  chrome.storage.local.get("gameStats").then(({ gameStats: gs }) => {
+    if (gs && gs.day === dayKey()) gameStats = { ...gameStats, ...gs };
+  }).catch(() => {});
+
+  function bumpGameStat(field) {
+    if (gameStats.day !== dayKey()) gameStats = freshGameStats();
+    gameStats[field] = (gameStats[field] || 0) + 1;
+    clearTimeout(gameStatsTimer);
+    gameStatsTimer = setTimeout(() => {
+      chrome.storage.local.set({ gameStats }).catch(() => {});
+    }, 1200);
+  }
+
   async function waitFor(cond, timeoutMs, stepMs = 15) {
     const end = now() + timeoutMs;
     while (now() < end) {
@@ -137,6 +170,30 @@
       await sleep(stepMs);
     }
     return cond();
+  }
+
+  function stemPlural(word) {
+    if (!word || word.length <= 3) return word;
+    const parts = word.split(" ");
+    const last = parts[parts.length - 1];
+    if (last.length <= 3) return word;
+    let stemmed = last;
+    if (/sses$/i.test(last)) {
+      stemmed = last.slice(0, -2);
+    } else if (/series|species/i.test(last)) {
+      return word;
+    } else if (/ies$/i.test(last) && last.length > 4) {
+      stemmed = last.slice(0, -3) + "y";
+    } else if (/(?:ch|sh|x|z)es$/i.test(last)) {
+      stemmed = last.slice(0, -2);
+    } else if (/s$/i.test(last) && !/(?:ss|us|is|as|os)$/i.test(last)) {
+      stemmed = last.slice(0, -1);
+    }
+    if (stemmed !== last) {
+      parts[parts.length - 1] = stemmed;
+      return parts.join(" ");
+    }
+    return word;
   }
 
   function norm(str) {
@@ -151,7 +208,8 @@
       .replace(/[^\p{L}\p{N}\s]/gu, "")
       .replace(/\s+/g, " ")
       .trim();
-    return stripped || base;
+    const res = stripped || base;
+    return stemPlural(res);
   }
 
   function cleanText(s) {
@@ -198,11 +256,13 @@
   // ---------------------------------------------------------------------------
   // Settings
   // ---------------------------------------------------------------------------
-  chrome.storage.local.get(["autoWrite", "autoPlay", "thinkingDelay", "showHud", "submitMethod"]).then((res) => {
+  chrome.storage.local.get(["autoWrite", "autoPlay", "thinkingDelay", "showHud", "submitMethod", "humanTyping", "typingWpm"]).then((res) => {
     if (typeof res.submitMethod === "string") S.preferredMethod = res.submitMethod;
     S.autoWrite = res.autoWrite !== undefined ? !!res.autoWrite : !!res.autoPlay;
     if (res.thinkingDelay !== undefined) S.thinkingDelay = Number(res.thinkingDelay) || 0;
     if (res.showHud !== undefined) S.showHud = !!res.showHud;
+    if (res.humanTyping !== undefined) S.humanTyping = !!res.humanTyping;
+    if (res.typingWpm !== undefined) S.typingWpm = Number(res.typingWpm) || 100;
     scheduleTick();
   }).catch(() => {});
 
@@ -211,6 +271,8 @@
     if (changes.autoWrite) S.autoWrite = !!changes.autoWrite.newValue;
     else if (changes.autoPlay) S.autoWrite = !!changes.autoPlay.newValue;
     if (changes.thinkingDelay) S.thinkingDelay = Number(changes.thinkingDelay.newValue) || 0;
+    if (changes.humanTyping) S.humanTyping = !!changes.humanTyping.newValue;
+    if (changes.typingWpm) S.typingWpm = Number(changes.typingWpm.newValue) || 100;
     if (changes.showHud) {
       S.showHud = !!changes.showHud.newValue;
       hudMode = "auto";
@@ -451,7 +513,8 @@
     if (!v || v.v !== MEMORY_VERSION) v = null;
     const good = Array.isArray(v?.good) ? v.good.filter((x) => typeof x === "string") : [];
     const bad = v && v.bad && typeof v.bad === "object" && !Array.isArray(v.bad) ? v.bad : {};
-    return { good, bad };
+    const candidates = Array.isArray(v?.candidates) ? v.candidates.filter((x) => typeof x === "string") : [];
+    return { good, bad, candidates };
   }
 
   function updateMemory(qkey, mutate) {
@@ -460,12 +523,13 @@
         const mem = await loadMemory(qkey);
         mutate(mem);
         mem.good = mem.good.slice(-MEMORY_GOOD_LIMIT);
+        mem.candidates = Array.isArray(mem.candidates) ? mem.candidates.slice(-MEMORY_CANDIDATES_LIMIT) : [];
         const badEntries = Object.entries(mem.bad);
         if (badEntries.length > MEMORY_BAD_LIMIT) {
           badEntries.sort((a, b) => b[1] - a[1]);
           mem.bad = Object.fromEntries(badEntries.slice(0, MEMORY_BAD_LIMIT));
         }
-        await chrome.storage.local.set({ [memKey(qkey)]: { v: MEMORY_VERSION, good: mem.good, bad: mem.bad } });
+        await chrome.storage.local.set({ [memKey(qkey)]: { v: MEMORY_VERSION, good: mem.good, bad: mem.bad, candidates: mem.candidates } });
       })
       .catch((e) => log("memory write failed:", e.message));
     return memoryWrites;
@@ -476,6 +540,7 @@
     S.good = S.good.filter((g) => norm(g) !== k).concat(word);
     updateMemory(qkey, (mem) => {
       mem.good = mem.good.filter((g) => norm(g) !== k).concat(word);
+      mem.candidates = (mem.candidates || []).filter((c) => norm(c) !== k);
       delete mem.bad[k];
     });
   }
@@ -485,7 +550,47 @@
     S.bad[k] = (S.bad[k] || 0) + 1;
     updateMemory(qkey, (mem) => {
       mem.good = mem.good.filter((g) => norm(g) !== k);
+      mem.candidates = (mem.candidates || []).filter((c) => norm(c) !== k);
       mem.bad[k] = (mem.bad[k] || 0) + 1;
+    });
+  }
+
+  function rememberCandidates(qkey, newCandidates) {
+    if (!newCandidates || !newCandidates.length) return;
+    updateMemory(qkey, (mem) => {
+      const existing = new Set([...mem.good.map(norm), ...(mem.candidates || []).map(norm)]);
+      const list = mem.candidates ? [...mem.candidates] : [];
+      for (const item of newCandidates) {
+        const k = norm(item);
+        if (k && !existing.has(k) && (mem.bad[k] || 0) < BAD_FORBID_COUNT) {
+          existing.add(k);
+          list.push(item);
+        }
+      }
+      mem.candidates = list.slice(-MEMORY_CANDIDATES_LIMIT);
+    });
+  }
+
+  // Generate plausible formatting/compound variants to attempt when pool runs dry in sudden death
+  function getWordVariants(word) {
+    if (!word || typeof word !== "string") return [];
+    const trimmed = word.trim();
+    const variants = [];
+    if (trimmed.includes("-")) {
+      variants.push(trimmed.replace(/-/g, " "));
+      variants.push(trimmed.replace(/-/g, ""));
+    }
+    if (trimmed.includes("'") || trimmed.includes("’")) {
+      variants.push(trimmed.replace(/['’]/g, ""));
+    }
+    if (/\bst\.?\s+/i.test(trimmed)) {
+      variants.push(trimmed.replace(/\bst\.?\s+/i, "Saint "));
+    } else if (/\bsaint\s+/i.test(trimmed)) {
+      variants.push(trimmed.replace(/\bsaint\s+/i, "St. "));
+    }
+    return variants.filter((v) => {
+      const vk = norm(v);
+      return v && v !== word && vk && !isUnavailable(vk);
     });
   }
 
@@ -605,7 +710,7 @@
     if (!force && apiBlocked()) return;
     if (!force) {
       if (now() < S.fetchNextAt) return;
-      if (S.emptyYields >= MAX_EMPTY_YIELDS) return;
+      if (S.emptyYields >= getMaxEmptyYields()) return;
     }
     S.fetchTimes = S.fetchTimes.filter((x) => now() - x < 60000);
     if (S.fetchTimes.length >= MAX_FETCHES_PER_MIN) {
@@ -625,6 +730,11 @@
     try {
       await job.memoryReady;
       if (S.tornDown || job.epoch !== S.epoch) return;
+      if (S.pool.length >= 8) {
+        log(`pool already has ${S.pool.length} verified/cached answers from memory — skipping initial API prefetch`);
+        setStatus(`Ready: ${S.pool.length} answers`, COLORS.ok);
+        return;
+      }
       const res = await sendMessageWithTimeout({ type: "PREFETCH_BATCH", question, forbidden: buildForbidden() }, FETCH_TIMEOUT_MS);
       if (S.tornDown || job.epoch !== S.epoch) {
         log(`discarded stale answers for "${question}"`);
@@ -637,6 +747,9 @@
       }
 
       const incoming = (res.answers || []).filter((a) => typeof a === "string").map((a) => a.trim()).filter((a) => a && a.length <= 60);
+      if (incoming.length && S.current) {
+        rememberCandidates(S.current.key, incoming);
+      }
       const before = S.pool.length;
       S.pool = S.pool.concat(incoming);
       prunePool();
@@ -667,6 +780,7 @@
   }
 
   async function fetchSingle() {
+    bumpGameStat("fallbacks");
     const epoch = S.epoch;
     try {
       const res = await sendMessageWithTimeout({ type: "GENERATE_ANSWER", question: S.question, usedAnswers: buildForbidden() }, FETCH_TIMEOUT_MS);
@@ -726,6 +840,7 @@
     S.hadRound = true;
     log(`category #${epoch}: "${cand.text}" (via ${cand.via}${cand.counter ? `, counter ${cand.counter}` : ""})`);
     setStatus("New category — loading answers…", COLORS.info);
+    bumpGameStat("rounds");
 
     S.memoryReady = loadMemory(cand.key)
       .then((mem) => {
@@ -733,9 +848,16 @@
         S.bad = mem.bad;
         S.good = mem.good;
         // Previously accepted answers are verified by the game itself: most recent first.
-        S.pool = mem.good.slice().reverse().concat(S.pool);
+        // Followed by cached candidate answers from previous batches.
+        const cachedCandidates = (mem.candidates || []).filter((c) => {
+          const k = norm(c);
+          return k && !S.used.has(k) && (S.bad[k] || 0) < BAD_FORBID_COUNT;
+        });
+        S.pool = mem.good.slice().reverse().concat(cachedCandidates, S.pool);
         prunePool();
-        if (S.pool.length) log(`seeded ${S.pool.length} remembered answers`);
+        if (S.pool.length) {
+          log(`seeded ${S.pool.length} remembered answers (${mem.good.length} verified, ${cachedCandidates.length} cached)`);
+        }
       })
       .catch((e) => log("memory load failed:", e.message));
 
@@ -819,6 +941,79 @@
     input.dispatchEvent(new KeyboardEvent("keyup", opts));
   }
 
+  // Types `word` into `input` character-by-character with realistic human cadence,
+  // respecting React 18 synthetic input events, panic retry acceleration, and fuse protection.
+  async function typeHuman(input, word, { wpm = 100, isRetry = false, turnStartTime = 0, stillMine, epoch } = {}) {
+    if (!input || !word) return false;
+    input.focus({ preventScroll: true });
+
+    // Base delay per character from WPM formula: (60,000 ms / (WPM * 5 chars)) = 12,000 / WPM
+    let baseDelay = 12000 / Math.max(30, Math.min(wpm, 250));
+
+    // Panic override: On retry attempts after a rejection, typist goes into fast reflex mode (2.2x speed)
+    if (isRetry) baseDelay = Math.max(25, baseDelay / 2.2);
+
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    let typedSoFar = "";
+    let prevChar = "";
+
+    for (let i = 0; i < word.length; i++) {
+      if (S.tornDown || S.epoch !== epoch) return false;
+      if (stillMine && !stillMine()) return false;
+
+      // Emergency fuse protection: if the turn has dragged on past 3.2s, flush remaining characters instantly
+      if (turnStartTime && (now() - turnStartTime > 3200)) {
+        if (setter) setter.call(input, word);
+        else input.value = word;
+        input.dispatchEvent(new InputEvent("input", {
+          bubbles: true, cancelable: true, composed: true,
+          inputType: "insertText", data: word.slice(i),
+        }));
+        return true;
+      }
+
+      const char = word[i];
+      typedSoFar += char;
+
+      // 1. Dispatch keydown
+      const keyCode = char.toUpperCase().charCodeAt(0);
+      const keyOpts = { key: char, code: `Key${char.toUpperCase()}`, keyCode, which: keyCode, bubbles: true, cancelable: true, composed: true };
+      input.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
+
+      // 2. Set native value & dispatch input event for React 18
+      if (setter) setter.call(input, typedSoFar);
+      else input.value = typedSoFar;
+
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true, cancelable: true, composed: true,
+        inputType: "insertText", data: char,
+      }));
+
+      // 3. Dispatch keyup
+      input.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
+
+      // Humanized cadence calculation:
+      let delay = baseDelay;
+      // Per-keystroke random variance (+/- 25%)
+      delay += (Math.random() * 0.5 - 0.25) * baseDelay;
+      // Double letters typed faster (finger already in position)
+      if (char === prevChar) delay *= 0.65;
+      // Spaces have a slight pause
+      if (char === " ") delay += baseDelay * 0.35;
+      // Capital letters have slight Shift-key hesitation
+      if (/[A-Z]/.test(char) && i > 0) delay += 30;
+
+      prevChar = char;
+
+      // Don't sleep after the very last character (immediately proceed to submission)
+      if (i < word.length - 1) {
+        await sleep(Math.max(18, Math.round(delay)));
+      }
+    }
+
+    return true;
+  }
+
   // Ordered submit strategies. Only ONE fires at a time; the next is tried only if the game showed no reaction,
   // so a single word is never sent twice by accident. The method that worked last time goes first, which means
   // the fallback delay is only ever paid on the very first turn.
@@ -857,12 +1052,24 @@
 
   // Types `word`, submits it, and works out what the game did with it.
   // Resolves "accepted" | "rejected" | "unknown" | "lost".
-  async function submitWord(word, epoch) {
+  async function submitWord(word, epoch, { attempt = 0, turnStartTime = 0, stillMine } = {}) {
     const input = getGameInput();
     if (!input) return "lost";
     const key = norm(word);
 
-    setInputValue(input, word);
+    if (S.humanTyping) {
+      const ok = await typeHuman(input, word, {
+        wpm: S.typingWpm || 100,
+        isRetry: attempt > 0,
+        turnStartTime,
+        stillMine,
+        epoch,
+      });
+      if (!ok) return "lost";
+    } else {
+      setInputValue(input, word);
+    }
+
     const btn = findSendButton(input);
     if (btn) await waitFor(() => !btn.disabled, 150);
 
@@ -956,6 +1163,7 @@
     turn.running = true;
     const epoch = S.epoch;
     const qkey = S.current.key;
+    bumpGameStat("turns");
     jr("playTurn start", { manual, autoWrite: S.autoWrite, pool: S.pool.length });
     const live = () => !S.tornDown && S.epoch === epoch;
     const stillMine = () => live() && isMyTurn(getGameInput());
@@ -974,9 +1182,16 @@
         return result;
       }
 
-      const delay = manual ? 0 : Math.min(Math.max(S.thinkingDelay, 0), 3000);
+      const rawDelay = manual ? 0 : Math.min(Math.max(S.thinkingDelay, 0), 3000);
+      let delay = rawDelay;
+      if (rawDelay > 0) {
+        // Uniform jitter: +/- 30% of configured delay (minimum 40ms)
+        const jitter = (Math.random() * 2 - 1) * (rawDelay * 0.3);
+        delay = Math.max(40, Math.round(rawDelay + jitter));
+      }
       if (delay) await sleep(delay);
 
+      const turnStartTime = now();
       for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_TURN; attempt++) {
         if (!stillMine()) {
           // After a rejection the box can briefly be disabled; give it a moment to come back.
@@ -989,13 +1204,15 @@
           if (!word) break;
         }
 
-        setStatus(`Typing "${word}"…`, COLORS.act);
+        const modeStr = S.humanTyping ? ` (${attempt > 0 ? "turbo" : `${S.typingWpm} WPM`})` : "";
+        setStatus(`Typing "${word}"${modeStr}…`, COLORS.act);
         typedWord = word;
-        const outcome = await submitWord(word, epoch);
+        const outcome = await submitWord(word, epoch, { attempt, turnStartTime, stillMine });
         const k = norm(word);
         S.answerCount++;
 
         if (outcome === "accepted") {
+          bumpGameStat("accepted");
           markUsed(k, "accepted by game (our turn)");
           rememberGood(qkey, word);
           log(`"${word}" accepted`);
@@ -1005,9 +1222,20 @@
           break;
         }
         if (outcome === "rejected") {
+          bumpGameStat("rejected");
           markUsed(k, "rejected by game (our turn)");
           rememberBad(qkey, word);
           log(`"${word}" rejected — trying next`);
+          // If the pool is completely empty in sudden death, check if this rejected word has a plausible formatting variant
+          // (e.g. "Spider-Man" -> "Spiderman", "St. Louis" -> "Saint Louis") to try before slow network fallback.
+          if (S.pool.length === 0) {
+            const variants = getWordVariants(word);
+            if (variants.length > 0) {
+              const bestVariant = variants[0];
+              log(`pool dry; attempting variant "${bestVariant}" for rejected "${word}"`);
+              S.pool.unshift(bestVariant);
+            }
+          }
           setStatus(`"${word}" rejected — next…`, COLORS.bad);
           result = { ok: false, error: `"${word}" was rejected` };
           continue;
@@ -1079,7 +1307,7 @@
   }
 
   function maintainPool() {
-    if (S.current && S.pool.length < POOL_LOW_WATER) requestRefill(false);
+    if (S.current && S.pool.length < getPoolLowWater()) requestRefill(false);
   }
 
   // ---------------------------------------------------------------------------
@@ -1419,6 +1647,8 @@
     return {
       version: VERSION,
       url: location.href,
+      gameStats: { ...gameStats },
+      playerCount: getPlayerCount(),
       phase: getPhase(),
       committedQuestion: S.current,
       detectedNow: (() => { const r = readQuestion(); return r ? { text: r.text, counter: r.counter, via: r.via } : null; })(),
@@ -1442,6 +1672,8 @@
       fetch: { inFlight: fetchInFlight(), failures: S.fetchFailures, nextInMs: Math.max(0, Math.round(S.fetchNextAt - now())), emptyYields: S.emptyYields },
       turn: { ...S.turn },
       autoWrite: S.autoWrite,
+      humanTyping: S.humanTyping,
+      typingWpm: S.typingWpm,
       status: S.status,
       html: { card: snip(".ds-card", 1500), hudMid: snip(".ds-hud-mid", 800), dock: snip(".ds-dock", 1200) },
       log: logBuf.slice(-200),
