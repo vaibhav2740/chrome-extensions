@@ -1,6 +1,6 @@
 (() => {
-  if (window.__boardAnalyzer) {
-    window.__boardAnalyzer.toggle();
+  if (window.__pawnshot) {
+    window.__pawnshot.toggle();
     return;
   }
 
@@ -140,8 +140,10 @@
   // ---------- panel UI ----------
 
   // The host is the glass shell; the panel iframe is transparent so the blur shows through.
+  // The whole shell lives in a shadow root and the host starts from `all: initial`, so the page's own CSS (an `img`
+  // margin, a `div` transition, a `* { box-sizing }`...) cannot reach it and it looks the same on every site.
   const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;top:24px;right:16px;z-index:2147483647;box-sizing:border-box;overflow:hidden;' +
+  host.style.cssText = 'all:initial;display:block;position:fixed;top:24px;right:16px;z-index:2147483647;box-sizing:border-box;overflow:hidden;' +
     'font:12px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;' +
     'border:1px solid rgba(255,255,255,.16);';
 
@@ -154,9 +156,9 @@
   logo.src = chrome.runtime.getURL('icons/48.png');
   logo.alt = '';
   logo.draggable = false;
-  logo.style.cssText = 'width:24px;height:24px;display:block;flex:none;filter:drop-shadow(0 2px 5px rgba(0,0,0,.35));';
+  logo.style.cssText = 'width:24px;height:24px;display:block;flex:none;margin:0;padding:0;border:0;max-width:none;filter:drop-shadow(0 2px 5px rgba(0,0,0,.35));';
   const title = document.createElement('span');
-  title.textContent = 'Board Analyzer';
+  title.textContent = 'Pawnshot';
   title.style.cssText = 'font-size:13px;font-weight:650;letter-spacing:-.01em;color:rgba(255,255,255,.94);white-space:nowrap;';
 
   const ICON_MIN = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="display:block;fill:currentColor"><rect x="3" y="7.2" width="10" height="1.6" rx=".8"/></svg>';
@@ -193,7 +195,8 @@
   frame.style.cssText = 'width:100%;height:600px;border:0;display:block;background:transparent;color-scheme:normal;';
   frame.setAttribute('allowtransparency', 'true');
   frame.allow = 'clipboard-write'; // lets the panel's "Copy FEN" use the async clipboard from inside a cross-origin frame
-  host.append(bar, frame);
+  const shadow = host.attachShadow({ mode: 'open' });
+  shadow.append(bar, frame);
   document.documentElement.appendChild(host);
 
   // ---- shell appearance: glass (blur) or basic (solid), minimized or open ----
@@ -340,7 +343,7 @@
     }
   });
 
-  window.__boardAnalyzer = {
+  window.__pawnshot = {
     toggle() {
       host.style.display = host.style.display === 'none' ? 'block' : 'none';
     },

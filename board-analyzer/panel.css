@@ -1,4 +1,4 @@
-/* Board Analyzer panel. Lives in a transparent iframe; the host (content.js) supplies the glass behind it. */
+/* Pawnshot panel. Lives in a transparent iframe; the host (content.js) supplies the glass behind it. */
 * { box-sizing: border-box; }
 
 html { background: transparent; }

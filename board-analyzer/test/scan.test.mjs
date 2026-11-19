@@ -458,7 +458,9 @@ hw.chrome = { runtime: { getURL: (p) => `chrome-extension://abc/${p}`, lastError
   sendMessage: (m, cb) => { sentToBg.push(m); if (m.type === "capture") visibleDuringCapture = host.style.visibility; setTimeout(() => cb && cb(m.type === "capture" ? bgAnswer : null), 0); } } };
 hw.eval(fs.readFileSync(`${COPY}/content.js`, "utf8"));
 const host = [...hw.document.documentElement.children].find((e) => e.tagName === "DIV");
-const frame = host.querySelector("iframe");
+const frame = host.shadowRoot.querySelector("iframe");
+// jsdom gives no window to an iframe inside a shadow root (Chrome does), so stand one in for the panel
+Object.defineProperty(frame, "contentWindow", { value: {}, configurable: true });
 const panelOrigin = new hw.URL(frame.src).origin;
 const toPanel = [];
 frame.contentWindow.postMessage = (...a) => toPanel.push(a[0]);

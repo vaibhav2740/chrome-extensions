@@ -1,9 +1,9 @@
 {
-  "name": "board-analyzer",
-  "version": "1.5.0",
+  "name": "pawnshot",
+  "version": "1.5.1",
   "private": true,
   "type": "module",
-  "description": "Board Analyzer Chrome extension. This file only exists for tests and packaging; Chrome ignores it.",
+  "description": "Pawnshot Chrome extension. This file only exists for tests and packaging; Chrome ignores it.",
   "scripts": {
     "test": "node --test",
     "pack": "sh scripts/pack.sh"

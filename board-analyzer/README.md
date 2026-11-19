@@ -1,11 +1,11 @@
-# Board Analyzer (personal Chrome extension)
+# Pawnshot: chess analyzer and board scanner
 
 A floating, draggable analysis board for any page, powered by Stockfish 19 (lite, single-thread WASM) running entirely in your browser. It reads the position on chess.com and lichess, or **scans a board from any picture, screenshot or paused video frame**, then shows the best move, evaluation and top lines in a clean liquid-glass panel. No server, nothing leaves your machine.
 
 ## Install
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
-3. Click **Load unpacked** and pick this folder (`~/personal/chrome-extensions/board-analyzer`)
+3. Click **Load unpacked** and pick this folder (`~/personal/chrome-extensions/board-analyzer`; the folder keeps its old name)
 4. Pin it via the puzzle-piece icon
 
 ## Use
@@ -54,7 +54,7 @@ How reading a picture works and what to expect:
 ```
 npm install      # jsdom and pngjs, tests only
 npm test         # panel UI, scan sheet, and the real models on test pictures (about 30 s)
-npm run pack     # ../board-analyzer-<version>.zip for the Chrome Web Store (no tests or node_modules)
+npm run pack     # ../pawnshot-<version>.zip for the Chrome Web Store (no tests or node_modules)
 ```
 Where things are: `panel.js` wires the panel together. Small modules do one job each: `engine-client.js` (Stockfish), `board-view.js` (drawing the board), `editor.js` (edit mode), `scan-flow.js` (capture and read), `crop-ui.js` (select the board), `links.js`, `settings.js`, `notation.js`. The reader itself is in `scanner/`: `core.js` (pure JS pipeline), `engine.js` (ONNX Runtime), `runner.js` + `worker.js` (browser decoding and worker), `client.js` (what the panel talks to). `test/fixtures/` holds a few synthetic boards with their answers.
 

@@ -28,7 +28,7 @@ function mainWorldFen() {
 function captureError(e) {
   const m = String((e && e.message) || e);
   if (/activeTab|permission|cannot access|not allowed/i.test(m)) {
-    return 'Chrome only allows capturing after you click the Board Analyzer icon on this tab. Click it once, or paste a screenshot instead.';
+    return 'Chrome only allows capturing after you click the Pawnshot icon on this tab. Click it once, or paste a screenshot instead.';
   }
   return 'Could not capture this tab: ' + m;
 }

@@ -4,7 +4,7 @@ Small personal Chrome extensions (Manifest V3), loaded unpacked, no store listin
 
 | Extension | What it does |
 |---|---|
-| [board-analyzer](board-analyzer) | Floating liquid-glass analysis board with in-browser Stockfish 19 on any page. Reads the board from chess.com / lichess or scans one from any picture or video frame (on-device AI, nothing uploaded), shows the best move and lines, and lets you play moves on the panel board. |
+| [Pawnshot](board-analyzer) | Floating liquid-glass analysis board with in-browser Stockfish 19 on any page. Reads the board from chess.com / lichess or scans one from any picture or video frame (on-device AI, nothing uploaded), shows the best move and lines, and lets you play moves on the panel board. |
 | [regqube-ai-player](regqube-ai-player) | **Krillion Bot** — AI sidekick for Krillion Puffer Party. Reads the category, lines up answers with Groq + Gemini, tracks what others said, and can play your turn automatically. Needs your own API keys (see its README). |
 
 ## Install any extension

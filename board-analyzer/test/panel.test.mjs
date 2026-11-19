@@ -280,12 +280,16 @@ hw.chrome = { runtime: { getURL: (p) => `chrome-extension://abc/${p}`, sendMessa
 const code = fs.readFileSync(`${COPY}/content.js`, "utf8");
 hw.eval(code);
 const host = [...hw.document.documentElement.children].find((e) => e.tagName === "DIV");
-const frame = host.querySelector("iframe");
-const bar = host.firstElementChild;
+const frame = host.shadowRoot.querySelector("iframe");
+// jsdom gives no window to an iframe inside a shadow root (Chrome does), so stand one in for the panel
+Object.defineProperty(frame, "contentWindow", { value: {}, configurable: true });
+const bar = host.shadowRoot.firstElementChild;
 check("glass shell mounted with the panel iframe", !!host && frame && frame.src === "chrome-extension://abc/panel.html");
 check("shell is rounded (32px) and uses the lighter 20px blur (jsdom can't parse backdrop-filter, so check the source)", host.style.borderRadius === "32px" && /blur\(20px\) saturate\(160%\)/.test(code) && !/blur\(30px\)/.test(code));
 check("iframe stays transparent (color-scheme matched)", /color-scheme:\s*normal/.test(frame.style.cssText) && /background:\s*transparent/.test(frame.style.cssText));
-check("header shows the new icon + title", bar.querySelector("img").src.endsWith("icons/48.png") && /Board Analyzer/.test(bar.textContent));
+check("the shell is isolated from the page's CSS: built inside a shadow root, nothing in the page's own tree", !!host.shadowRoot && host.children.length === 0 && host.shadowRoot.children.length === 2 && /all:initial;display:block/.test(code));
+check("the logo carries its own margin reset, so a page rule like `img { margin-bottom: 12px }` cannot lift it off the centre line", /margin: ?0(px)?; ?padding: ?0(px)?; ?border: ?0(px)?/.test(bar.querySelector("img").style.cssText));
+check("header shows the new icon + title", bar.querySelector("img").src.endsWith("icons/48.png") && /Pawnshot/.test(bar.textContent));
 const panelOrigin = new hw.URL(frame.src).origin; // jsdom reports "null" for extension URLs; Chrome reports the real origin
 const fromPanel = (data) => hw.dispatchEvent(new hw.MessageEvent("message", { data, origin: panelOrigin, source: frame.contentWindow }));
 fromPanel({ type: "height", height: 700 });
