@@ -523,6 +523,8 @@ check("options page and module background are declared", man.options_ui.page ===
 for (const f of ["fairplay.js", "video-track.js", "license.js", "plan.js", "premium-config.js", "options.html", "options.js", "options.css", "PRIVACY.md"]) check(`${f} exists`, fs.existsSync(`${SRC}/${f}`));
 const pc = await import(`file://${SRC}/premium-config.js`);
 check("premium-config ships with a known provider", ["none", "lemonsqueezy", "gumroad"].includes(pc.PREMIUM_CONFIG.provider));
+const lic = await import(`file://${SRC}/license.js`);
+check("the manifest lets the extension ask for the shop it sells through (and no other)", pc.PREMIUM_CONFIG.provider === "none" || JSON.stringify(man.optional_host_permissions) === JSON.stringify([lic.PROVIDER_ORIGINS[pc.PREMIUM_CONFIG.provider]]));
 
 console.log(fail ? `\n${fail} PREMIUM CHECK(S) FAILED` : "\nPREMIUM CHECKS PASSED");
 process.exit(fail ? 1 : 0);

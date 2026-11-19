@@ -1,0 +1,31 @@
+Watching chess on YouTube and wondering what the engine thinks? Pawnshot keeps an analysis board in step with the video.
+
+FOLLOW A VIDEO, MOVE BY MOVE
+Turn on Follow and the panel board plays each move as it happens in the video, with the best move, the evaluation bar and the top engine lines ready whenever you glance at it. The whole move list is kept: step back with the arrow keys and catch up again. Fast enough for blitz: a move shows up a fraction of a second after the piece lands, and moves too quick to see are worked out from the position. Free: 10 minutes a day. Premium: as long as you like.
+
+SNAPSHOT ANY BOARD, UNLIMITED
+Press Snapshot and Pawnshot reads the position from wherever it is:
+• videos: straight from the video picture, no screenshot needed
+• chess.com and lichess analysis boards: exact, including whose move it is and castling
+• any page, book, PDF or picture: from a screenshot, a file, or paste (Ctrl+V)
+
+PRIVATE: IT ALL RUNS ON YOUR COMPUTER
+The board reader is an on-device neural network and Stockfish 19 runs inside your browser. No picture or position is uploaded. No account, no sign-up, no ads, no tracking.
+
+PLAY THROUGH IDEAS
+Drag pieces on the panel board, step back and forth, fix any square in the edit mode, then open the position on the Lichess or Chess.com analysis board in one click. Minimize Pawnshot to a small pill that shows just the best move.
+
+FAIR PLAY BUILT IN
+Pawnshot is for learning, not cheating. It switches itself off while a game or a rated puzzle is in progress on chess.com, chesskid.com or lichess, the same rule those sites use for their own analysis, and turns back on when the game is over. It never reads a live camera or a screen share.
+
+LIGHT ON YOUR COMPUTER
+• Follow compares a small picture of the board and wakes the board reader only when it has to
+• Works on modest laptops and Chromebooks: a lighter style and search are picked automatically
+• Nothing runs while the panel is hidden
+
+FREE AND PREMIUM
+Free: the full analysis board, unlimited scans, chess.com and lichess boards, Follow a video 10 minutes a day, depth 20 with 3 lines.
+Premium (one-time purchase, no subscription): Follow videos without a limit, depth 30 with 5 lines, extra board colours.
+
+Open source (GPL-3.0). Uses Stockfish (GPL-3.0) and the chessimg2pos board reader (MIT).
+Not affiliated with chess.com, lichess or YouTube.

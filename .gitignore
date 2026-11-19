@@ -8,3 +8,7 @@ _backups/
 
 # Store builds (npm run pack)
 pawnshot-*.zip
+
+# Store screenshots and the demo recording (made locally, may show personal tabs)
+board-analyzer/store/screenshots/
+board-analyzer/store/*.mov

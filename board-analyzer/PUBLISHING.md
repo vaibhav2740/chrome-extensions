@@ -31,7 +31,7 @@ The numbers live in `plan.js` (`FREE_LIMITS`, `PREMIUM_LIMITS`, `THEMES`): chang
 - chessvision.ai's membership is $5.99 a month or $45.99 a year and ScanChess is $4.99 a month or $29.99 a year
   (third-party figures; check their sites). "Pay once, $6.99, no account" is an easy yes next to those, and it is
   fair because Pawnshot has no servers to pay for.
-- Under $10 is an impulse buy. Lemon Squeezy keeps about 5% + 50¢, so $6.99 leaves you about $6.15 before payout fees.
+- Under $10 is an impulse buy. Gumroad keeps about 10% + 50¢, so $6.99 leaves you about $5.80 before payout fees.
 - Don't start with a subscription: a monthly fee for a tool that costs nothing to run invites "greedy" 1-star reviews,
   and renewals and refunds add work. For a launch push, use a discount code (say 30% off for the first week) rather
   than changing the price.
@@ -43,121 +43,76 @@ The numbers live in `plan.js` (`FREE_LIMITS`, `PREMIUM_LIMITS`, `THEMES`): chang
 build a copy without the paywall. That is allowed and normal for GPL software; people pay for the convenience of the
 store version, updates and support. Don't add licence terms that forbid redistribution (the GPL doesn't allow that).
 
-## 2. Payments: pick a shop (you)
+## 2. Payments: Gumroad (done)
 
-Chrome Web Store has no built-in payments any more, so Premium is sold through a shop that issues licence keys. The
-extension supports two; both have no monthly fee (they take a cut per sale) and both pay out to India.
+Premium is sold on Gumroad (Lemon Squeezy was not taking new sign-ups): https://vaibhavster44.gumroad.com/l/pawnshot,
+$6.99 one-time, licence keys on. `premium-config.js` holds the checkout link and the product ID, and the manifest's
+only optional host permission is `https://api.gumroad.com/*`. Gumroad is the merchant of record (it charges sales
+tax / VAT for you) and keeps about 10% + 50¢ a sale; check its pricing page.
 
-1. **Lemon Squeezy (recommended).** Merchant of record: it charges the right VAT/GST in every country for you, issues
-   keys with an activation limit, and has a licence API made for apps. Payouts to India go through PayPal (bank
-   payouts go through Stripe, which is reported to be invite-only for new Indian accounts). Fee about 5% + 50¢ per
-   sale; check their pricing page.
-   - Create a store, then a product "Pawnshot Premium" with **License keys: on**, activation limit 3, no expiry (for
-     lifetime) and your price.
-   - Note the **store ID** (Settings → Stores) and the **product ID** (the number in the product's URL).
-   - Copy the product's checkout link (Share → "Checkout link").
-2. **Gumroad.** Simplest sign-up, also a merchant of record now. Its cut is higher (around 10% plus a per-sale fee;
-   check the current pricing and the payout methods offered for India when you sign up). Create a product, tick
-   **Generate a unique license key per sale**, and copy the product ID shown in that section.
+Good to know about Gumroad keys:
+- Every activation uses up one of the key's uses, and removing a key from a browser does not give it back (Gumroad
+  has no per-browser slots). `maxActivations` is 5 so that a buyer who reinstalls a couple of times is not locked out.
+  If someone does run out, the simple fix is a fresh key: a 100%-off code for a new "purchase".
+- Checking a key by hand with Gumroad's verify API also uses one up, unless the request sends
+  `increment_uses_count=false`.
+- Never put a real key in the repo, the listing, a screenshot or a public post. For the store's reviewers, make a
+  separate key (section 3, Test instructions).
 
-Then fill in `premium-config.js`:
-
-```js
-export const PREMIUM_CONFIG = {
-  provider: 'lemonsqueezy',           // or 'gumroad'
-  checkoutUrl: 'https://<your-store>.lemonsqueezy.com/buy/<id>',
-  priceLabel: '$6.99 one-time',
-  lemonsqueezy: { storeId: 12345, productIds: [67890] },
-  gumroad: { productId: '' },
-  maxActivations: 3,
-};
-```
-
-How it works for a buyer: ★ Premium in the panel → settings page → **Get Premium** (opens the checkout) → the key
-arrives by email → paste it → Chrome asks once for permission to talk to the shop → Premium is on. The key is
+How it works for a buyer: ★ Premium in the panel → settings page → **Get Premium** (opens the Gumroad page) → the key
+arrives by email → paste it → Chrome asks once for permission to talk to api.gumroad.com → Premium is on. The key is
 re-checked about weekly; offline use keeps working for 30 days. A refunded or disabled key turns Premium off at the
-next check. "Remove the key from this browser" frees an activation for another computer.
-
-Test it before launch: make a 100% discount code in the shop, "buy" your own product, activate the key in an
-unpacked copy. For testing features without buying, the settings page of an **unpacked** copy has a
+next check. For testing features without a key, the settings page of an **unpacked** copy has a
 "Developer: turn on Premium" switch (it does nothing in a store install).
 
-## 3. Chrome Web Store listing (you)
+## 3. Chrome Web Store dashboard, tab by tab (you)
 
-One-time developer registration fee: **$5** (Google's, unavoidable). Edge Add-ons is free to publish on.
+One-time developer registration fee: **$5** (done). Edge Add-ons is free to publish on.
 
-1. `npm test` (every suite must pass), then `npm run pack` → `../pawnshot-2.0.0.zip` (~35 MB; the limit is far higher).
-2. https://chrome.google.com/webstore/devconsole → New item → upload the zip.
-3. Fill the listing with the text below, upload the screenshots (section 5), set the privacy practices (section 4).
+**Package:** `npm test` (every suite must pass), then `npm run pack` → `../pawnshot-2.0.1.zip` (~35 MB). Upload it to
+replace the draft's 2.0.0: 2.0.1 drops the unused Lemon Squeezy permission and has the store-style icon.
 
-**Name** (from the manifest, 49 chars): `Pawnshot: Chess Video Analysis & Position Scanner`
+**Store listing:**
 
-Why this name:
-- The store finds items mostly by the words in the name and summary, then ranks them by installs, ratings and how
-  many people keep them. So the words after the colon do the finding, and "Pawnshot" is the brand people remember
-  and pass on.
-- "Chess Video Analysis" is what only Pawnshot does, and hardly any other item uses those words, so it can rank at
-  the top for them. "Position Scanner" is the phrase the market leader made common, so Pawnshot also shows up next to
-  it for people looking for a scanner.
-- Stockfish is in the summary, not the name: a name starting with "Stockfish" lands among the cheating bots.
-- Keep out of the name: "live", "helper", "bot" (they read like a cheating tool) and chess.com, lichess, YouTube or
-  Twitch (other brands in a title get items rejected as misleading). In the description, don't repeat a search word
-  over and over or list many brands: Google's keyword-spam rule rejects that.
-- "Pawnshot" itself is short, unique (no other chess product found under it) and says chess + snapshot. Its one weak
-  spot: heard aloud it can be typed "pawnshop", so always give the store link with it.
+| Field | What to put |
+|---|---|
+| Title, Summary | come from the package; nothing to type |
+| Description | paste all of `store/description.txt` (keep the "Fast enough for blitz" sentence only if section 7 bears it out) |
+| Category | **Education** (it is a learning tool, which also fits the fair-play story); Tools if you prefer |
+| Language | English |
+| Store icon | `store/icon-128.png` |
+| Global promo video | the YouTube link of the demo (section 5) |
+| Screenshots | `store/screenshots/1-…5-….png`, in that order (section 5) |
+| Small promo tile | `store/promo-small-440x280.png` (items without one are listed after items that have one) |
+| Marquee promo tile | `store/promo-marquee-1400x560.png` (only used if Google features the item) |
+| Official URL | leave empty: it needs a website you have verified in Google Search Console |
+| Homepage URL | `https://github.com/vaibhav2740/chrome-extensions/tree/main/board-analyzer` |
+| Support URL | `https://github.com/vaibhav2740/chrome-extensions/issues` |
+| Mature content | No |
 
-**Summary** (manifest description, 132 of 132 chars):
-`Follow a chess video move by move with Stockfish on your device. Scan a board from YouTube, a screenshot or picture. Fair-play safe.`
+**Privacy:** section 4.
 
-**Category:** Tools (second choice: Education). **Language:** English.
+**Distribution:** Visibility **Public**, **All regions**.
 
-**Description:**
+**Test instructions** (optional, but Google suggests it for paid features, so the reviewer can try Premium):
 
 ```
-Watching chess on YouTube and wondering what the engine thinks? Pawnshot keeps an analysis board in step with the video.
-
-FOLLOW A VIDEO, MOVE BY MOVE
-Turn on Follow and the panel board plays each move as it happens in the video, with the best move, the evaluation bar
-and the top engine lines ready whenever you glance at it. The whole move list is kept: step back with the arrow keys
-and catch up again. Fast enough for blitz: a move shows up a fraction of a second after the piece lands, and moves too
-quick to see are worked out from the position. Free: 10 minutes a day. Premium: as long as you like.
-
-SNAPSHOT ANY BOARD, UNLIMITED
-Press Snapshot and Pawnshot reads the position from wherever it is:
-• videos: straight from the video picture, no screenshot needed
-• chess.com and lichess analysis boards: exact, including whose move it is and castling
-• any page, book, PDF or picture: from a screenshot, a file, or paste (Ctrl+V)
-
-PRIVATE: IT ALL RUNS ON YOUR COMPUTER
-The board reader is an on-device neural network and Stockfish 19 runs inside your browser. No picture or position is
-uploaded. No account, no sign-up, no ads, no tracking.
-
-PLAY THROUGH IDEAS
-Drag pieces on the panel board, step back and forth, fix any square in the edit mode, then open the position on the
-Lichess or Chess.com analysis board in one click. Minimize Pawnshot to a small pill that shows just the best move.
-
-FAIR PLAY BUILT IN
-Pawnshot is for learning, not cheating. It switches itself off while a game or a rated puzzle is in progress on
-chess.com, chesskid.com or lichess, the same rule those sites use for their own analysis, and turns back on when the
-game is over. It never reads a live camera or a screen share.
-
-LIGHT ON YOUR COMPUTER
-• Follow compares a small picture of the board and wakes the board reader only when it has to
-• Works on modest laptops and Chromebooks: a lighter style and search are picked automatically
-• Nothing runs while the panel is hidden
-
-FREE AND PREMIUM
-Free: the full analysis board, unlimited scans, chess.com and lichess boards, Follow a video 10 minutes a day, depth 20
-with 3 lines.
-Premium (one-time purchase, no subscription): Follow videos without a limit, depth 30 with 5 lines, extra board colours.
-
-Open source (GPL-3.0). Uses Stockfish (GPL-3.0) and the chessimg2pos board reader (MIT).
-Not affiliated with chess.com, lichess or YouTube.
+No account is needed. Click the toolbar icon on any page to open the panel.
+Free features: Snapshot on a chess video or picture, the analysis board, chess.com / lichess boards.
+Premium (unlimited Follow on a video, depth 30, 5 lines, more board colours) is unlocked with a Gumroad licence key:
+panel gear icon -> settings page -> "Plan" -> paste the key -> Activate. Chrome then asks once for permission
+to contact api.gumroad.com, which checks the key.
+Test key: <a separate key made for the reviewers, not your own>
+Fair play: the panel locks itself on a chess.com or lichess game in progress ("Game in progress"); that is intended.
 ```
 
-Keep the "Fast enough for blitz" sentence only if it holds up on a real stream (section 7).
+**Account → trader status (EU):** you declared Non-Trader. The EU rule says a trader is someone acting "for purposes
+relating to [their] trade, business, craft or profession", and Pawnshot sells Premium, so the safer reading is
+Trader. A trader's name, phone number and address are verified and shown to EU users on the listing, which is the
+privacy cost. The purchase itself happens on Gumroad (the merchant of record), so the case is not clear-cut either
+way; Google leaves the declaration to you. Decide before submitting: switching later is allowed.
 
-## 4. Privacy practices tab
+## 4. Privacy tab
 
 - **Single purpose:** "Shows a chess analysis board on web pages: reads a chess position from the page, a video or a
   picture and analyses it with an on-device chess engine."
@@ -165,31 +120,56 @@ Keep the "Fast enough for blitz" sentence only if it holds up on a real stream (
   icon on that tab."
 - **scripting:** "To show the analysis panel on the tab the user opened it on, and to read the chess site's own board
   data there."
-- **storage:** "To remember the user's settings and, on the free plan, how many minutes of video following were used
-  today."
-- **Optional host permissions (api.lemonsqueezy.com, api.gumroad.com):** "Requested only when the user activates a
-  Premium license key, to check the key with the shop that sold it."
-- **Remote code:** No. **Data collection:** tick nothing; certify the three disclosures.
+- **storage:** "To remember the user's settings, the Premium licence status and, on the free plan, how many minutes
+  of video following were used today."
+- **Host permission (optional, api.gumroad.com):** "Requested only when the user activates a Premium licence key, to
+  check the key with Gumroad, the shop that sold it."
+- **Remote code:** No.
+- **Data usage:** Google counts data that is only processed on the device too, so tick:
+  - **Website content**: the board on the page, the video picture or a screenshot is read to find the position
+    (on the device; nothing is sent anywhere);
+  - **Authentication information**: the Premium licence key, sent only to Gumroad to check it;
+  - **Personally identifiable information**: the buyer's email address that Gumroad returns with a valid key, shown
+    on the settings page and kept only on the device.
+  Nothing else. Then tick the three certifications (not sold, not used for unrelated purposes, not used for credit).
 - **Privacy policy URL:** `https://github.com/vaibhav2740/chrome-extensions/blob/main/board-analyzer/PRIVACY.md`
 
 ## 5. Screenshots, demo video and artwork (you)
 
-Required: at least one screenshot, **1280×800** (or 640×400), PNG/JPEG. Upload 5. Small promo tile 440×280 is
-recommended (needed to be featured). Shoot them in Chrome at 1280×800 with the panel on the right:
+Ready in `store/` (redo them with `python3 scripts/store-art.py`): `icon-128.png` (also the package icon now:
+96 px of artwork with 16 px clear around it, as the store asks), `promo-small-440x280.png`,
+`promo-marquee-1400x560.png`. They show the Opera game just before Morphy's Qb8+.
 
-1. **Follow on a video (hero shot):** a playing game video with the panel next to it, the move list in step and the
-   best-move arrow. Caption: "The board follows the video, move by move".
-2. Snapshot of a board from a screenshot or a book page. Caption: "Scan any board: video, screenshot, picture".
-3. The minimized pill showing "Nf3 +0.4" over the playing video. Caption: "Out of the way while you watch".
-4. The fair-play lock card on a chess.com game ("Game in progress"). Caption: "Fair play: off during live games".
-5. The settings page, Free vs Premium comparison. Caption: "Free to use. Pay once for unlimited Follow".
+**Screenshots** (5, 1280×800, no transparency). `scripts/store-shot.py` sizes the Chrome window, captures it at the
+exact size and adds a caption band over Chrome's tab bar:
 
-The listing also takes a YouTube video. A 30–60 second screen recording of Follow keeping up with a fast game is the
-most convincing thing you can show, and it doubles as the post for section 6. Use a video you made (for example a
-lichess game replayed on screen) or one you have permission for; someone else's channel and face in your advert can
-get the listing reported.
+1. Load the unpacked folder (the same code as the zip) and pin the icon. Use a **new Chrome window with one tab**
+   (other tabs' titles would show) and hide the bookmarks bar (Cmd+Shift+B).
+2. `python3 scripts/store-shot.py size` once, then set up each scene below and run its line. Chrome comes to the
+   front and the picture is taken 4 seconds later (`--delay 8` for more time).
+3. Never show your own licence key or email (the settings page shows the email once a key is active): take shot 5
+   on the free plan.
 
-Store the files in `store/` (not shipped in the zip).
+| # | Scene | Command |
+|---|---|---|
+| 1 | A game video playing, panel open on the right, Follow on and a few moves in: move list, eval bar and best-move arrow visible | `python3 scripts/store-shot.py 1-follow "The board follows the video, move by move"` |
+| 2 | A page or picture with a board (an article, a puzzle image, a paused video), panel just after Snapshot with the lines showing | `python3 scripts/store-shot.py 2-snapshot "Scan any board: videos, screenshots, pictures"` |
+| 3 | The minimized pill (best move + eval) over the playing video | `python3 scripts/store-shot.py 3-pill "Out of the way while you watch"` |
+| 4 | A chess.com game against a bot, in progress, with the panel showing "Game in progress" | `python3 scripts/store-shot.py 4-fairplay "Fair play: off during live games"` |
+| 5 | The settings page (gear icon), Free vs Premium | `python3 scripts/store-shot.py 5-plans "Free to use. Pay once for unlimited Follow"` |
+
+Which video: someone else's channel and face in your advert can get the listing reported. The clean way is your own:
+open a famous game on lichess, step through it with → while recording the screen (Cmd+Shift+5), with a few quick
+moves in a row, and upload it to YouTube. That video also proves Follow on fast moves.
+
+**Demo video** (worth doing: it is the most convincing thing on the page). 30–60 s, uploaded to YouTube as Public,
+then the link goes in "Global promo video". `python3 scripts/store-shot.py video 60` records the same window (with
+clicks shown) to `store/demo.mov`; Cmd+Shift+5 works too. A running order:
+1. A chess video playing; click the Pawnshot icon, the panel appears (0–5 s).
+2. Snapshot: the position and the best move appear (5–10 s).
+3. Follow on: moves arrive with the video, including a quick run (10–35 s).
+4. ← to look back, → to catch up; minimize to the pill (35–45 s).
+5. A chess.com game vs a bot: "Game in progress" (45–55 s).
 
 ## 6. How Pawnshot competes, and after publishing
 

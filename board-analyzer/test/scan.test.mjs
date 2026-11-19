@@ -500,7 +500,7 @@ check("Follow requests carry no id", toPanel.some((m) => m.type === "snapshot" &
 console.log("6. manifest");
 const man = JSON.parse(fs.readFileSync(`${COPY}/manifest.json`, "utf8"));
 check("only activeTab/scripting/storage, no blanket host access", JSON.stringify(man.permissions.sort()) === '["activeTab","scripting","storage"]' && !man.host_permissions);
-check("the licence servers are optional (asked for only when a key is activated)", JSON.stringify(man.optional_host_permissions) === '["https://api.lemonsqueezy.com/*","https://api.gumroad.com/*"]');
+check("the licence server is optional (asked for only when a key is activated), and only the shop in use is listed", JSON.stringify(man.optional_host_permissions) === '["https://api.gumroad.com/*"]');
 check("wasm allowed for extension pages", /wasm-unsafe-eval/.test(man.content_security_policy.extension_pages));
 const war = man.web_accessible_resources[0].resources.join(" ");
 check("only the panel page and the icons are web accessible (pages cannot probe the engine, models or code)", war === "panel.html icons/*", war);

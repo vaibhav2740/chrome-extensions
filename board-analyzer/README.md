@@ -79,7 +79,7 @@ The panel then shows "Game in progress" (or "Puzzle in progress") instead of the
 | Depth / lines | 20 / 3 | 30 / 5 |
 | Board colours | 2 | 6 |
 
-Limits live in `plan.js`. Premium is a licence key bought from Lemon Squeezy or Gumroad; the shop is set in `premium-config.js` (until it is filled in, the settings page says "Premium is coming soon"). The key is checked with the shop when it is entered and then about weekly (`license.js`); Premium keeps working offline for 30 days. To try Premium features without a key, an **unpacked** copy has a "Developer: turn on Premium" switch on the settings page (it does nothing in a store install).
+Limits live in `plan.js`. Premium is a licence key sold through Gumroad (`license.js` also supports Lemon Squeezy); the shop is set in `premium-config.js` (until it is filled in, the settings page says "Premium is coming soon"). The key is checked with the shop when it is entered and then about weekly (`license.js`); Premium keeps working offline for 30 days. To try Premium features without a key, an **unpacked** copy has a "Developer: turn on Premium" switch on the settings page (it does nothing in a store install).
 
 ## How the position is read from chess.com and lichess
 - chess.com: piece elements (`.piece.wp.square-52`) from the board DOM, plus the page's own `game.getFEN()` (read in the page's JS world) for turn, castling and en passant when it matches what is displayed.
@@ -87,7 +87,7 @@ Limits live in `plan.js`. Premium is a licence key bought from Lemon Squeezy or 
 - If only the DOM is available, side to move comes from the last-move highlight and castling rights are guessed from home squares. Use the **Turn** selector to override.
 
 ## Permissions
-`activeTab` (act on the tab where you click the icon, also what allows the screenshot), `scripting` (insert the panel and read the page's own board object) and `storage` (your settings and, on the free plan, today's minutes of Follow on a video). Optional: `api.lemonsqueezy.com` / `api.gumroad.com`, asked for only when you enter a Premium key, to check it. No other network requests, no analytics.
+`activeTab` (act on the tab where you click the icon, also what allows the screenshot), `scripting` (insert the panel and read the page's own board object) and `storage` (your settings and, on the free plan, today's minutes of Follow on a video). Optional: `api.gumroad.com`, asked for only when you enter a Premium key, to check it. No other network requests, no analytics.
 
 ## Development
 ```
