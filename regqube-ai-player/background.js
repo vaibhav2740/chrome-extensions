@@ -28,6 +28,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.alarms.create("keepalive", { periodInMinutes: 0.4 });
 });
 
+// Ensure keep-alive alarm exists across browser restarts/unpacked reloads
+chrome.alarms.get("keepalive", (alarm) => {
+  if (!alarm) {
+    chrome.alarms.create("keepalive", { periodInMinutes: 0.4 });
+  }
+});
+
 // The alarm handler is intentionally a no-op; its only purpose is to wake the service worker.
 chrome.alarms.onAlarm.addListener(() => {});
 
@@ -85,6 +92,9 @@ function sanitizeQuestion(question) {
 // Normalise one raw model answer into something typeable, or "" if it is junk.
 function cleanAnswer(raw) {
   if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (trimmed.endsWith(":")) return "";
+  if (/^(?:here\s+(?:are|is)|sure[,!.]?|certainly[,!.]?|below\s+(?:are|is)|the\s+following\b)/i.test(trimmed)) return "";
   // Strip list markers ("1.", "2)", "-", "*") but keep leading digits that belong to the answer ("7 Up").
   let a = raw
     .replace(/^\s*(?:\d{1,2}[.)]|[-*•])\s+/, "")
@@ -147,7 +157,7 @@ function cleanAnswerList(list, forbidden = []) {
 }
 
 function parseAnswerList(raw) {
-  const stripped = raw
+  const stripped = String(raw || "")
     .replace(/<think>[\s\S]*?<\/think>/gi, "") // some reasoning models inline their thoughts
     .replace(/^\s*```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/i, "")
@@ -513,6 +523,7 @@ function cacheGet(qkey) {
 
 function cachePut(qkey, answers) {
   const prev = cacheGet(qkey);
+  batchCache.delete(qkey);
   batchCache.set(qkey, { answers: cleanAnswerList([...(prev ? prev.answers : []), ...answers]), at: Date.now() });
   while (batchCache.size > CACHE_MAX_ENTRIES) batchCache.delete(batchCache.keys().next().value);
 }
@@ -700,7 +711,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         },
         blocked: [...blocked.entries()].filter(([, b]) => b.until > t).map(([model, b]) => ({ model, secondsLeft: Math.ceil((b.until - t) / 1000), daily: b.daily })),
       });
-    });
+    }).catch((err) => sendResponse({ error: err.message }));
     return true;
   }
 
@@ -711,6 +722,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request?.type === "CLEAR_ALL_MEMORY") {
     (async () => {
+      batchCache.clear();
+      inflightBatch.clear();
       const all = await chrome.storage.local.get(null);
       const keysToRemove = Object.keys(all).filter((k) => k.startsWith("memory_"));
       if (keysToRemove.length > 0) await chrome.storage.local.remove(keysToRemove);
