@@ -7,153 +7,157 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="popup-container">
+  <div class="shell">
     
-    <!-- Header -->
-    <header class="popup-header">
-      <div class="title-row">
-        <img class="app-icon" src="../icons/icon-48.png" alt="" width="34" height="34">
-        <div class="title-stack">
-          <h1>WCC Live Pulse</h1>
-          <span class="subtitle">Geneva 2026 · Game 1 of 14</span>
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <div class="brand">
+        <img class="brand-icon" src="../icons/icon-48.png" alt="" width="30" height="30">
+        <div class="brand-text">
+          <span class="brand-title">WCC Pulse</span>
+          <span class="brand-sub">Game 1 · Geneva 2026</span>
         </div>
       </div>
       <div class="live-pill" id="livePill">
+        <span class="pulse-ring"></span>
         <span class="pulse-dot"></span>
-        <span class="pulse-text" id="pulseText">LIVE</span>
+        <span class="pulse-label" id="pulseText">LIVE</span>
       </div>
     </header>
 
-    <!-- Main Hero Probability Card -->
-    <section class="glass hero-card" aria-label="Game 1 Win Probability">
-      <div class="card-top-row">
-        <span class="card-title">Game 1 Win Probability</span>
-        <span class="opening-badge" id="openingBadge">Berlin Defense</span>
+    <!-- Hero Probability Card -->
+    <section class="glass-card hero-card" aria-label="Win Probability">
+      <div class="card-meta">
+        <span class="section-tag">Win Probability</span>
+        <span class="badge-pill" id="openingBadge">Berlin Defense</span>
       </div>
 
-      <!-- Segmented Probability Bar -->
-      <div class="prob-bar-wrap">
-        <div class="prob-segment seg-white" id="segWhite" style="width: 21.0%;"></div>
-        <div class="prob-segment seg-draw" id="segDraw" style="width: 72.4%;"></div>
-        <div class="prob-segment seg-black" id="segBlack" style="width: 6.6%;"></div>
+      <!-- Segmented Bar -->
+      <div class="bar-shell">
+        <div class="bar-seg seg-w" id="segWhite" style="width: 21.0%;"></div>
+        <div class="bar-seg seg-d" id="segDraw" style="width: 72.4%;"></div>
+        <div class="bar-seg seg-b" id="segBlack" style="width: 6.6%;"></div>
       </div>
 
-      <!-- Three Odds Badges -->
-      <div class="prob-stats-grid">
-        <div class="prob-box white-box">
-          <span class="prob-label">Sindarov (W)</span>
-          <span class="prob-value" id="probWhite">21.0%</span>
+      <!-- Probabilities Grid -->
+      <div class="prob-row">
+        <div class="prob-chip chip-w">
+          <span class="p-sub">Sindarov (W)</span>
+          <span class="p-num" id="probWhite">21.0%</span>
         </div>
-        <div class="prob-box draw-box">
-          <span class="prob-label">Draw</span>
-          <span class="prob-value" id="probDraw">72.4%</span>
+        <div class="prob-chip chip-d">
+          <span class="p-sub">Draw</span>
+          <span class="p-num" id="probDraw">72.4%</span>
         </div>
-        <div class="prob-box black-box">
-          <span class="prob-label">Gukesh (B)</span>
-          <span class="prob-value" id="probBlack">6.6%</span>
+        <div class="prob-chip chip-b">
+          <span class="p-sub">Gukesh (B)</span>
+          <span class="p-num" id="probBlack">6.6%</span>
         </div>
       </div>
 
-      <!-- Match Series Banner -->
-      <div class="match-banner">
-        <span class="match-label">14-Game Title Expectancy</span>
-        <span class="match-values" id="matchValues">Sindarov 75% · Gukesh 25%</span>
+      <!-- Title Expectancy Banner -->
+      <div class="title-expectancy">
+        <span class="te-label">14-Game Title Expectancy</span>
+        <span class="te-value" id="matchValues">Sindarov 75% · Gukesh 25%</span>
       </div>
     </section>
 
-    <!-- Clocks & Players Card -->
-    <section class="glass clock-card" aria-label="Player Clocks & Pace">
-      <div class="players-row">
+    <!-- Live Clocks & Pace Card -->
+    <section class="glass-card clock-card" aria-label="Player Clocks">
+      <div class="players-grid">
         <!-- White Player -->
-        <div class="player-col white-col" id="whitePlayerCard">
-          <div class="player-meta">
+        <div class="player-panel white-side" id="whitePanel">
+          <div class="p-header">
             <span class="turn-dot" id="whiteTurnDot" title="Thinking…"></span>
-            <span class="player-name">Sindarov</span>
-            <span class="player-elo">2782</span>
+            <span class="p-name">Sindarov</span>
+            <span class="elo-pill">2782</span>
           </div>
-          <div class="clock-display" id="whiteClock" contenteditable="true" spellcheck="false" title="Click to edit or sync with stream">1:35:54</div>
-          <span class="pace-chip" id="whitePace">3.6m / move</span>
+          <div class="clock-val" id="whiteClock" contenteditable="true" spellcheck="false" title="Click to match stream time">1:18:08</div>
+          <div class="pace-tag" id="whitePace">3.4m / mv</div>
         </div>
 
-        <!-- Center VS / Delta -->
-        <div class="center-col">
-          <span class="vs-text">vs</span>
-          <div class="delta-chip" id="deltaChip" title="Clock Difference">+16m 41s</div>
+        <!-- Center Divider & Delta -->
+        <div class="center-hub">
+          <span class="vs-label">VS</span>
+          <div class="delta-badge" id="deltaChip" title="Clock Difference">+13m 14s</div>
         </div>
 
         <!-- Black Player -->
-        <div class="player-col black-col" id="blackPlayerCard">
-          <div class="player-meta">
-            <span class="player-name">Gukesh</span>
-            <span class="player-elo">2710</span>
+        <div class="player-panel black-side" id="blackPanel">
+          <div class="p-header">
+            <span class="elo-pill">2710</span>
+            <span class="p-name">Gukesh</span>
             <span class="turn-dot" id="blackTurnDot" title="Thinking…"></span>
           </div>
-          <div class="clock-display" id="blackClock" contenteditable="true" spellcheck="false" title="Click to edit or sync with stream">1:19:13</div>
-          <span class="pace-chip warning" id="blackPace">2.9m / move</span>
+          <div class="clock-val" id="blackClock" contenteditable="true" spellcheck="false" title="Click to match stream time">1:04:54</div>
+          <div class="pace-tag warning" id="blackPace">2.8m / mv</div>
         </div>
       </div>
 
-      <!-- Live Sync / Hint Banner -->
-      <div class="clock-hint-row">
-        <span class="clock-hint-text">Clocks tick live · Click either time to match stream</span>
-      </div>
-
-      <!-- Zero Increment Warning -->
-      <div class="time-control-alert" id="tcAlert">
-        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true">
-          <path d="M8 1a7 7 0 1 0 7 7A7 7 0 0 0 8 1zm0 12.5a5.5 5.5 0 1 1 5.5-5.5A5.5 5.5 0 0 1 8 13.5zm.5-8.5h-1v4l3.5 2.1.5-.8-3-1.8z"/>
+      <!-- Zero-Increment Alert Strip -->
+      <div class="increment-strip" id="tcAlert">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="8" r="7"/>
+          <polyline points="8 4 8 8 10.5 9.5"/>
         </svg>
-        <span id="tcText">27 moves to move 40 (0s increment)</span>
+        <span id="tcText">23 moves to move 40 (0s increment)</span>
       </div>
     </section>
 
     <!-- Telemetry & Position Bar -->
-    <section class="glass telemetry-card">
-      <div class="telemetry-row">
-        <span class="move-pill" id="movePill">Move 14 · White to move</span>
-        <span class="last-move" id="lastMove">Last: 13... Bd7</span>
+    <section class="glass-card tele-card">
+      <div class="tele-top">
+        <span class="tele-pill active-turn" id="movePill">Move 17 · Black to move</span>
+        <span class="tele-move" id="lastMove">17. b3</span>
       </div>
 
-      <div class="engine-pills">
-        <div class="eval-pill">
-          <span class="ep-label">Engine Eval</span>
-          <span class="ep-val" id="engineEval">+0.25</span>
+      <div class="eval-grid">
+        <div class="eval-box">
+          <span class="ev-lbl">Engine Eval</span>
+          <span class="ev-val" id="engineEval">+0.25</span>
         </div>
-        <div class="eval-pill">
-          <span class="ep-label">Time Hazard</span>
-          <span class="ep-val" id="timeHazard">+0.05</span>
+        <div class="eval-box">
+          <span class="ev-lbl">Time Hazard</span>
+          <span class="ev-val" id="timeHazard">+0.04</span>
         </div>
-        <div class="eval-pill highlight">
-          <span class="ep-label">Effective</span>
-          <span class="ep-val" id="effectiveEval">+0.32</span>
+        <div class="eval-box hero-eval">
+          <span class="ev-lbl">Effective</span>
+          <span class="ev-val" id="effectiveEval">+0.29</span>
         </div>
       </div>
     </section>
 
-    <!-- Controls & Footer -->
-    <footer class="popup-footer">
-      <div class="footer-left">
-        <button id="refreshBtn" class="btn btn-secondary" title="Fetch latest moves from DGT">
-          <svg class="spin-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+    <!-- Bottom Actions & Status -->
+    <footer class="bottom-bar">
+      <div class="actions-left">
+        <button id="refreshBtn" class="glass-btn" title="Sync live DGT broadcast">
+          <svg class="spin-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 4v3.5h3.5"/>
+            <path d="M15 12v-3.5h-3.5"/>
+            <path d="M13.5 6A6 6 0 0 0 2.8 5.1L1 7.5"/>
+            <path d="M2.5 10a6 6 0 0 0 10.7.9l1.8-2.4"/>
           </svg>
           <span id="refreshLabel">Sync</span>
         </button>
 
-        <label class="auto-switch" title="Auto-refresh moves from DGT every 15s">
+        <label class="toggle-wrap" title="Auto-sync moves every 15s">
           <input type="checkbox" id="autoSyncCheck" checked>
-          <span class="slider round"></span>
-          <span class="switch-label">Live</span>
+          <span class="switch-pill"></span>
+          <span class="toggle-text">Live</span>
         </label>
       </div>
 
-      <a id="lichessLink" class="broadcast-link" href="https://lichess.org/broadcast/fide-world-chess-championship-2026/game-1/xLgOJ6cb" target="_blank" rel="noopener">
-        Lichess ↗
+      <a id="lichessLink" class="stream-link" href="https://lichess.org/broadcast/fide-world-chess-championship-2026/game-1/xLgOJ6cb" target="_blank" rel="noopener">
+        <span>Lichess Board</span>
+        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 3h7v7"/>
+          <path d="M13 3 7 9"/>
+        </svg>
       </a>
     </footer>
 
-    <div class="status-bar" id="statusBar">Updated just now</div>
+    <div class="micro-status" id="statusBar">Updated just now</div>
+
   </div>
 
   <script type="module" src="popup.js"></script>

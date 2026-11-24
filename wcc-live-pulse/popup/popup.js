@@ -1,9 +1,9 @@
-// WCC Live Pulse - Popup Controller with Live Clock Ticking & Stream Calibration
+// WCC Live Pulse - Pawnshot Ultra-Glass Controller
 import { calculateWccProbabilities } from './probability_engine.js';
 
 const BROADCAST_PGN_URL = 'https://lichess.org/api/broadcast/round/xLgOJ6cb.pgn';
 
-// DOM elements
+// DOM Elements
 const el = {
   segWhite: document.getElementById('segWhite'),
   segDraw: document.getElementById('segDraw'),
@@ -38,7 +38,7 @@ let liveTickTimer = null;
 let isSyncing = false;
 let isEditingClock = false;
 
-// Default initial state (Game 1 Move 13 baseline, Sindarov thinking on move 14)
+// Default initial state (Game 1 Move 17)
 let currentState = {
   white: 'Sindarov, Javokhir',
   black: 'Gukesh D',
@@ -46,20 +46,19 @@ let currentState = {
   blackElo: 2710,
   round: '1.1',
   opening: 'Berlin Defense',
-  lastMove: '13... Bd7',
-  moveNumber: 13,
-  isWhiteTurn: true,
-  whiteTimeStr: '1:35:54', // Matched to live stream
-  blackTimeStr: '1:19:13',
-  whiteTimeSec: 5754,
-  blackTimeSec: 4753,
+  lastMove: '17. b3',
+  moveNumber: 17,
+  isWhiteTurn: false, // 17. b3 was White's move, so now Black's turn!
+  whiteTimeStr: '1:18:08',
+  blackTimeStr: '1:04:54',
+  whiteTimeSec: 4688,
+  blackTimeSec: 3894,
   evalPawns: 0.25,
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 
-  // Load from local storage
   try {
     const cached = await chrome.storage.local.get(['matchData', 'lastSyncAt', 'userAdjustedClocks']);
     if (cached.matchData) {
@@ -79,10 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     render(currentState, true);
   }
 
-  // Start active countdown ticker
   startLiveTickTimer();
-
-  // Initial live check from DGT
   await syncMatchData(true);
   setupAutoSync();
 });
@@ -96,7 +92,6 @@ function setupEventListeners() {
     setupAutoSync();
   });
 
-  // Allow clicking on clock to calibrate with YouTube stream
   setupClockEditable(el.whiteClock, 'white');
   setupClockEditable(el.blackClock, 'black');
 }
@@ -144,7 +139,7 @@ function applyClockEdit(rawText, playerColor) {
 function startLiveTickTimer() {
   if (liveTickTimer) clearInterval(liveTickTimer);
   liveTickTimer = setInterval(() => {
-    if (isEditingClock) return; // Don't interrupt user typing
+    if (isEditingClock) return;
 
     if (currentState.isWhiteTurn && currentState.whiteTimeSec > 0) {
       currentState.whiteTimeSec -= 1;
@@ -185,13 +180,11 @@ async function syncMatchData(silent = false) {
     const pgnText = await res.text();
     const parsed = parsePgn(pgnText);
 
-    // If new move landed on board, update currentState and clear user calibration
     const isNewMove = parsed.lastMove !== currentState.lastMove;
     if (isNewMove) {
       currentState = { ...currentState, ...parsed };
       await chrome.storage.local.remove('userAdjustedClocks');
     } else {
-      // Keep running live clocks, but update metadata
       currentState.white = parsed.white;
       currentState.black = parsed.black;
       currentState.whiteElo = parsed.whiteElo;
@@ -251,10 +244,9 @@ function parsePgn(pgn) {
     const moveMatch = lastMove.match(/^(\d+)(\.{1,3})/);
     if (moveMatch) {
       moveNumber = parseInt(moveMatch[1], 10);
-      isWhiteTurn = moveMatch[2] === '...'; // If last move was black (...), next is white
+      isWhiteTurn = moveMatch[2] === '...';
     }
 
-    // Traverse backwards and pick the absolute latest White and Black move clocks
     for (let i = clkMatches.length - 1; i >= 0; i--) {
       const notation = clkMatches[i][1];
       const clk = clkMatches[i][2];
@@ -268,8 +260,8 @@ function parsePgn(pgn) {
     }
   }
 
-  whiteTimeStr = whiteTimeStr || '1:54:43';
-  blackTimeStr = blackTimeStr || '1:19:13';
+  whiteTimeStr = whiteTimeStr || '1:18:08';
+  blackTimeStr = blackTimeStr || '1:04:54';
 
   return {
     white,
@@ -321,7 +313,6 @@ function render(data, updateClockText = true) {
 
   const { game1, match, clocks } = probData;
 
-  // Segment widths & numbers
   const wPct = (game1.whiteWin * 100).toFixed(1);
   const dPct = (game1.draw * 100).toFixed(1);
   const bPct = (game1.blackWin * 100).toFixed(1);
@@ -334,18 +325,16 @@ function render(data, updateClockText = true) {
   el.probDraw.textContent = `${dPct}%`;
   el.probBlack.textContent = `${bPct}%`;
 
-  // Match series
   const sMatchPct = Math.round(match.sindarov * 100);
   const gMatchPct = 100 - sMatchPct;
   el.matchValues.textContent = `Sindarov ${sMatchPct}% · Gukesh ${gMatchPct}%`;
 
-  // Opening & Move
   el.openingBadge.textContent = data.opening;
   const turnLabel = data.isWhiteTurn ? 'White to move' : 'Black to move';
-  el.movePill.textContent = `Move ${data.moveNumber + (data.isWhiteTurn ? 1 : 0)} · ${turnLabel}`;
-  el.lastMove.textContent = `Last: ${data.lastMove}`;
+  const displayMove = data.moveNumber + (data.isWhiteTurn ? 1 : 0);
+  el.movePill.textContent = `Move ${displayMove} · ${turnLabel}`;
+  el.lastMove.textContent = data.lastMove;
 
-  // Clocks
   if (updateClockText && !isEditingClock) {
     el.whiteClock.textContent = data.whiteTimeStr;
     el.blackClock.textContent = data.blackTimeStr;
@@ -363,8 +352,8 @@ function render(data, updateClockText = true) {
     el.blackTurnDot.classList.add('active');
   }
 
-  el.whitePace.textContent = `${clocks.tauWMin}m / move`;
-  el.blackPace.textContent = `${clocks.tauBMin}m / move`;
+  el.whitePace.textContent = `${clocks.tauWMin}m / mv`;
+  el.blackPace.textContent = `${clocks.tauBMin}m / mv`;
 
   if (parseFloat(clocks.tauBMin) < 3.0) {
     el.blackPace.classList.add('warning');
@@ -375,7 +364,6 @@ function render(data, updateClockText = true) {
   el.deltaChip.textContent = clocks.deltaClockFormatted;
   el.tcText.textContent = `${clocks.mRem} moves to move 40 (0s increment)`;
 
-  // Telemetry
   el.engineEval.textContent = `+${(data.evalPawns || 0.25).toFixed(2)}`;
   el.timeHazard.textContent = `${game1.timeShift >= 0 ? '+' : ''}${game1.timeShift.toFixed(2)}`;
   el.effectiveEval.textContent = `${game1.effectiveEval >= 0 ? '+' : ''}${game1.effectiveEval.toFixed(2)}`;
