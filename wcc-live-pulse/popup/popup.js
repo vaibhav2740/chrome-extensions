@@ -1,4 +1,4 @@
-// WCC Live Pulse - Popup Controller
+// WCC Live Pulse - Popup Controller with Live Clock Ticking & Stream Calibration
 import { calculateWccProbabilities } from './probability_engine.js';
 
 const BROADCAST_PGN_URL = 'https://lichess.org/api/broadcast/round/xLgOJ6cb.pgn';
@@ -15,6 +15,8 @@ const el = {
   openingBadge: document.getElementById('openingBadge'),
   whiteClock: document.getElementById('whiteClock'),
   blackClock: document.getElementById('blackClock'),
+  whiteTurnDot: document.getElementById('whiteTurnDot'),
+  blackTurnDot: document.getElementById('blackTurnDot'),
   whitePace: document.getElementById('whitePace'),
   blackPace: document.getElementById('blackPace'),
   deltaChip: document.getElementById('deltaChip'),
@@ -32,10 +34,12 @@ const el = {
 };
 
 let autoSyncTimer = null;
+let liveTickTimer = null;
 let isSyncing = false;
+let isEditingClock = false;
 
-// Default initial state (Game 1 Move 13 baseline)
-const defaultState = {
+// Default initial state (Game 1 Move 13 baseline, Sindarov thinking on move 14)
+let currentState = {
   white: 'Sindarov, Javokhir',
   black: 'Gukesh D',
   whiteElo: 2782,
@@ -45,9 +49,9 @@ const defaultState = {
   lastMove: '13... Bd7',
   moveNumber: 13,
   isWhiteTurn: true,
-  whiteTimeStr: '1:54:43',
+  whiteTimeStr: '1:35:54', // Matched to live stream
   blackTimeStr: '1:19:13',
-  whiteTimeSec: 6883,
+  whiteTimeSec: 5754,
   blackTimeSec: 4753,
   evalPawns: 0.25,
 };
@@ -55,34 +59,103 @@ const defaultState = {
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 
-  // Load cache first for instant render
+  // Load from local storage
   try {
-    const cached = await chrome.storage.local.get(['matchData', 'lastSyncAt']);
+    const cached = await chrome.storage.local.get(['matchData', 'lastSyncAt', 'userAdjustedClocks']);
     if (cached.matchData) {
-      render(cached.matchData);
-      const ageSec = Math.round((Date.now() - (cached.lastSyncAt || 0)) / 1000);
-      el.statusBar.textContent = `Updated ${ageSec < 5 ? 'just now' : `${ageSec}s ago`}`;
+      currentState = { ...currentState, ...cached.matchData };
+      if (cached.userAdjustedClocks) {
+        if (cached.userAdjustedClocks.whiteTimeSec) currentState.whiteTimeSec = cached.userAdjustedClocks.whiteTimeSec;
+        if (cached.userAdjustedClocks.blackTimeSec) currentState.blackTimeSec = cached.userAdjustedClocks.blackTimeSec;
+        currentState.whiteTimeStr = formatSeconds(currentState.whiteTimeSec);
+        currentState.blackTimeStr = formatSeconds(currentState.blackTimeSec);
+      }
+      render(currentState, true);
     } else {
-      render(defaultState);
+      render(currentState, true);
     }
   } catch (err) {
     console.warn('Storage read error:', err);
-    render(defaultState);
+    render(currentState, true);
   }
 
-  // Trigger live sync
-  await syncMatchData();
+  // Start active countdown ticker
+  startLiveTickTimer();
+
+  // Initial live check from DGT
+  await syncMatchData(true);
   setupAutoSync();
 });
 
 function setupEventListeners() {
   el.refreshBtn.addEventListener('click', async () => {
-    await syncMatchData();
+    await syncMatchData(false);
   });
 
   el.autoSyncCheck.addEventListener('change', () => {
     setupAutoSync();
   });
+
+  // Allow clicking on clock to calibrate with YouTube stream
+  setupClockEditable(el.whiteClock, 'white');
+  setupClockEditable(el.blackClock, 'black');
+}
+
+function setupClockEditable(clockElement, playerColor) {
+  clockElement.addEventListener('focus', () => {
+    isEditingClock = true;
+  });
+
+  clockElement.addEventListener('blur', () => {
+    isEditingClock = false;
+    applyClockEdit(clockElement.textContent.trim(), playerColor);
+  });
+
+  clockElement.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clockElement.blur();
+    }
+  });
+}
+
+function applyClockEdit(rawText, playerColor) {
+  const sec = parseClockSeconds(rawText);
+  if (sec > 0) {
+    if (playerColor === 'white') {
+      currentState.whiteTimeSec = sec;
+      currentState.whiteTimeStr = formatSeconds(sec);
+    } else {
+      currentState.blackTimeSec = sec;
+      currentState.blackTimeStr = formatSeconds(sec);
+    }
+    chrome.storage.local.set({
+      userAdjustedClocks: {
+        whiteTimeSec: currentState.whiteTimeSec,
+        blackTimeSec: currentState.blackTimeSec,
+        setAt: Date.now(),
+      }
+    });
+    render(currentState, true);
+    el.statusBar.textContent = `Calibrated with stream at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+}
+
+function startLiveTickTimer() {
+  if (liveTickTimer) clearInterval(liveTickTimer);
+  liveTickTimer = setInterval(() => {
+    if (isEditingClock) return; // Don't interrupt user typing
+
+    if (currentState.isWhiteTurn && currentState.whiteTimeSec > 0) {
+      currentState.whiteTimeSec -= 1;
+      currentState.whiteTimeStr = formatSeconds(currentState.whiteTimeSec);
+    } else if (!currentState.isWhiteTurn && currentState.blackTimeSec > 0) {
+      currentState.blackTimeSec -= 1;
+      currentState.blackTimeStr = formatSeconds(currentState.blackTimeSec);
+    }
+
+    render(currentState, false);
+  }, 1000);
 }
 
 function setupAutoSync() {
@@ -93,7 +166,7 @@ function setupAutoSync() {
   if (el.autoSyncCheck.checked) {
     autoSyncTimer = setInterval(async () => {
       await syncMatchData(true);
-    }, 15000); // Poll every 15 seconds
+    }, 15000);
   }
 }
 
@@ -112,17 +185,33 @@ async function syncMatchData(silent = false) {
     const pgnText = await res.text();
     const parsed = parsePgn(pgnText);
 
+    // If new move landed on board, update currentState and clear user calibration
+    const isNewMove = parsed.lastMove !== currentState.lastMove;
+    if (isNewMove) {
+      currentState = { ...currentState, ...parsed };
+      await chrome.storage.local.remove('userAdjustedClocks');
+    } else {
+      // Keep running live clocks, but update metadata
+      currentState.white = parsed.white;
+      currentState.black = parsed.black;
+      currentState.whiteElo = parsed.whiteElo;
+      currentState.blackElo = parsed.blackElo;
+      currentState.opening = parsed.opening;
+      currentState.isWhiteTurn = parsed.isWhiteTurn;
+      currentState.moveNumber = parsed.moveNumber;
+    }
+
     await chrome.storage.local.set({
-      matchData: parsed,
+      matchData: currentState,
       lastSyncAt: Date.now(),
     });
 
-    render(parsed);
-    el.statusBar.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    render(currentState, true);
+    el.statusBar.textContent = `DGT Synced · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
     el.pulseText.textContent = 'LIVE';
   } catch (err) {
-    console.warn('[WCC Live Pulse] Fetch error, using fallback state:', err);
-    el.statusBar.textContent = 'Offline cache active';
+    console.warn('[WCC Live Pulse] Fetch error, continuing with local ticker:', err);
+    el.statusBar.textContent = 'Offline / Ticking';
     el.pulseText.textContent = 'STANDBY';
   } finally {
     isSyncing = false;
@@ -140,20 +229,20 @@ function parsePgn(pgn) {
     return m ? m[1] : '';
   };
 
-  const white = getHeader('White') || defaultState.white;
-  const black = getHeader('Black') || defaultState.black;
+  const white = getHeader('White') || 'Sindarov, Javokhir';
+  const black = getHeader('Black') || 'Gukesh D';
   const whiteElo = parseInt(getHeader('WhiteElo') || '2782', 10);
   const blackElo = parseInt(getHeader('BlackElo') || '2710', 10);
-  const openingFull = getHeader('Opening') || defaultState.opening;
+  const openingFull = getHeader('Opening') || 'Ruy Lopez: Berlin Defense';
   const opening = openingFull.includes('Berlin') ? 'Berlin Defense' : openingFull.split(':')[0];
 
   const clkMatches = [...pgn.matchAll(/(\d+\.{1,3}\s*[^\s{}]+)\s*\{\s*\[%clk\s+([^\]]+)\]/g)];
 
-  let whiteTimeStr = defaultState.whiteTimeStr;
-  let blackTimeStr = defaultState.blackTimeStr;
-  let lastMove = defaultState.lastMove;
-  let moveNumber = defaultState.moveNumber;
-  let isWhiteTurn = defaultState.isWhiteTurn;
+  let whiteTimeStr = null;
+  let blackTimeStr = null;
+  let lastMove = 'Game start';
+  let moveNumber = 1;
+  let isWhiteTurn = true;
 
   if (clkMatches.length > 0) {
     const last = clkMatches[clkMatches.length - 1];
@@ -162,27 +251,25 @@ function parsePgn(pgn) {
     const moveMatch = lastMove.match(/^(\d+)(\.{1,3})/);
     if (moveMatch) {
       moveNumber = parseInt(moveMatch[1], 10);
-      isWhiteTurn = moveMatch[2] === '...';
+      isWhiteTurn = moveMatch[2] === '...'; // If last move was black (...), next is white
     }
 
+    // Traverse backwards and pick the absolute latest White and Black move clocks
     for (let i = clkMatches.length - 1; i >= 0; i--) {
       const notation = clkMatches[i][1];
       const clk = clkMatches[i][2];
-      if (!notation.includes('...') && whiteTimeStr === defaultState.whiteTimeStr) {
+      if (!notation.includes('...') && !whiteTimeStr) {
         whiteTimeStr = clk;
       }
-      if (notation.includes('...') && blackTimeStr === defaultState.blackTimeStr) {
+      if (notation.includes('...') && !blackTimeStr) {
         blackTimeStr = clk;
       }
+      if (whiteTimeStr && blackTimeStr) break;
     }
   }
 
-  const parseClockSeconds = (str) => {
-    const parts = str.split(':').map((p) => parseInt(p, 10));
-    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    return 7200;
-  };
+  whiteTimeStr = whiteTimeStr || '1:54:43';
+  blackTimeStr = blackTimeStr || '1:19:13';
 
   return {
     white,
@@ -201,7 +288,25 @@ function parsePgn(pgn) {
   };
 }
 
-function render(data) {
+function parseClockSeconds(str) {
+  if (!str) return 7200;
+  const parts = str.split(':').map((p) => parseInt(p, 10));
+  if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+  if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+  return 7200;
+}
+
+function formatSeconds(totalSec) {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return `${h}:${mm}:${ss}`;
+}
+
+function render(data, updateClockText = true) {
   const probData = calculateWccProbabilities({
     evalPawns: data.evalPawns || 0.25,
     whiteTimeSec: data.whiteTimeSec,
@@ -241,8 +346,23 @@ function render(data) {
   el.lastMove.textContent = `Last: ${data.lastMove}`;
 
   // Clocks
-  el.whiteClock.textContent = data.whiteTimeStr;
-  el.blackClock.textContent = data.blackTimeStr;
+  if (updateClockText && !isEditingClock) {
+    el.whiteClock.textContent = data.whiteTimeStr;
+    el.blackClock.textContent = data.blackTimeStr;
+  } else if (!isEditingClock) {
+    el.whiteClock.textContent = formatSeconds(data.whiteTimeSec);
+    el.blackClock.textContent = formatSeconds(data.blackTimeSec);
+  }
+
+  // Turn dots
+  if (data.isWhiteTurn) {
+    el.whiteTurnDot.classList.add('active');
+    el.blackTurnDot.classList.remove('active');
+  } else {
+    el.whiteTurnDot.classList.remove('active');
+    el.blackTurnDot.classList.add('active');
+  }
+
   el.whitePace.textContent = `${clocks.tauWMin}m / move`;
   el.blackPace.textContent = `${clocks.tauBMin}m / move`;
 

@@ -50,14 +50,13 @@ function parseBroadcastPgn(pgn) {
   const whiteElo = parseInt(getHeader('WhiteElo') || '2782', 10);
   const blackElo = parseInt(getHeader('BlackElo') || '2710', 10);
   const round = getHeader('Round') || '1.1';
-  const opening = getHeader('Opening') || "Ruy Lopez: Berlin Defense";
+  const openingFull = getHeader('Opening') || 'Ruy Lopez: Berlin Defense';
+  const opening = openingFull.includes('Berlin') ? 'Berlin Defense' : openingFull.split(':')[0];
 
-  // Parse moves & clock tags
-  // e.g. 13. Ne4 { [%clk 1:54:43] } 13... Bd7 { [%clk 1:19:13] }
   const clkMatches = [...pgn.matchAll(/(\d+\.{1,3}\s*[^\s{}]+)\s*\{\s*\[%clk\s+([^\]]+)\]/g)];
   
-  let whiteTimeStr = '2:00:00';
-  let blackTimeStr = '2:00:00';
+  let whiteTimeStr = null;
+  let blackTimeStr = null;
   let lastMove = 'Game start';
   let moveNumber = 1;
   let isWhiteTurn = true;
@@ -66,26 +65,27 @@ function parseBroadcastPgn(pgn) {
     const last = clkMatches[clkMatches.length - 1];
     lastMove = last[1].trim();
 
-    // Determine move number and turn
     const moveMatch = lastMove.match(/^(\d+)(\.{1,3})/);
     if (moveMatch) {
       moveNumber = parseInt(moveMatch[1], 10);
-      isWhiteTurn = moveMatch[2] === '...'; // If last move was black (...), next is white
+      isWhiteTurn = moveMatch[2] === '...';
     }
 
-    // Collect latest white & black clocks
     for (let i = clkMatches.length - 1; i >= 0; i--) {
       const notation = clkMatches[i][1];
       const clk = clkMatches[i][2];
-      if (!notation.includes('...') && whiteTimeStr === '2:00:00') {
+      if (!notation.includes('...') && !whiteTimeStr) {
         whiteTimeStr = clk;
       }
-      if (notation.includes('...') && blackTimeStr === '2:00:00') {
+      if (notation.includes('...') && !blackTimeStr) {
         blackTimeStr = clk;
       }
-      if (whiteTimeStr !== '2:00:00' && blackTimeStr !== '2:00:00') break;
+      if (whiteTimeStr && blackTimeStr) break;
     }
   }
+
+  whiteTimeStr = whiteTimeStr || '1:54:43';
+  blackTimeStr = blackTimeStr || '1:19:13';
 
   const parseClockSeconds = (str) => {
     const parts = str.split(':').map((p) => parseInt(p, 10));
@@ -93,9 +93,6 @@ function parseBroadcastPgn(pgn) {
     if (parts.length === 2) return parts[0] * 60 + parts[1];
     return 7200;
   };
-
-  const whiteTimeSec = parseClockSeconds(whiteTimeStr);
-  const blackTimeSec = parseClockSeconds(blackTimeStr);
 
   return {
     white,
@@ -109,7 +106,7 @@ function parseBroadcastPgn(pgn) {
     isWhiteTurn,
     whiteTimeStr,
     blackTimeStr,
-    whiteTimeSec,
-    blackTimeSec,
+    whiteTimeSec: parseClockSeconds(whiteTimeStr),
+    blackTimeSec: parseClockSeconds(blackTimeStr),
   };
 }

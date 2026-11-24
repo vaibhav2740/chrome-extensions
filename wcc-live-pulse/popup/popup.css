@@ -18,7 +18,7 @@
   --violet: #a855f7;
   --emerald: #34d399;
   --amber: #fbbf24;
-  --red: #f87171;
+  --red: #ef4444;
   
   --orb-a: rgba(168, 85, 247, 0.35);
   --orb-b: rgba(56, 189, 248, 0.30);
@@ -45,6 +45,7 @@
     --violet: #7c3aed;
     --emerald: #059669;
     --amber: #d97706;
+    --red: #dc2626;
     
     --orb-a: rgba(124, 58, 237, 0.15);
     --orb-b: rgba(2, 132, 199, 0.15);
@@ -300,8 +301,30 @@ body {
 
 .player-meta {
   display: flex;
-  align-items: baseline;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
+}
+
+.turn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.turn-dot.active {
+  background: var(--red);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.9);
+  opacity: 1;
+  animation: pulse-turn 1.4s infinite ease-in-out;
+}
+
+@keyframes pulse-turn {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
 }
 
 .player-name {
@@ -322,10 +345,23 @@ body {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  cursor: text;
+  border-bottom: 1px dashed transparent;
+  padding: 1px 3px;
+  border-radius: 4px;
+  transition: all 0.2s;
 }
 
-.white-col .clock-display { color: var(--text); }
-.black-col .clock-display { color: var(--text); }
+.clock-display:hover {
+  border-bottom-color: var(--glass-hi);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.clock-display:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  border-bottom-color: var(--cyan);
+}
 
 .pace-chip {
   font-size: 10px;
@@ -365,6 +401,16 @@ body {
   color: var(--cyan);
   border: 1px solid rgba(56, 189, 248, 0.3);
   font-variant-numeric: tabular-nums;
+}
+
+.clock-hint-row {
+  text-align: center;
+  margin-top: -2px;
+}
+
+.clock-hint-text {
+  font-size: 10px;
+  color: var(--text-3);
 }
 
 .time-control-alert {

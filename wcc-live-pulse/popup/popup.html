@@ -33,16 +33,16 @@
 
       <!-- Segmented Probability Bar -->
       <div class="prob-bar-wrap">
-        <div class="prob-segment seg-white" id="segWhite" style="width: 21.9%;"></div>
+        <div class="prob-segment seg-white" id="segWhite" style="width: 21.0%;"></div>
         <div class="prob-segment seg-draw" id="segDraw" style="width: 72.4%;"></div>
-        <div class="prob-segment seg-black" id="segBlack" style="width: 5.7%;"></div>
+        <div class="prob-segment seg-black" id="segBlack" style="width: 6.6%;"></div>
       </div>
 
       <!-- Three Odds Badges -->
       <div class="prob-stats-grid">
         <div class="prob-box white-box">
           <span class="prob-label">Sindarov (W)</span>
-          <span class="prob-value" id="probWhite">21.9%</span>
+          <span class="prob-value" id="probWhite">21.0%</span>
         </div>
         <div class="prob-box draw-box">
           <span class="prob-label">Draw</span>
@@ -50,7 +50,7 @@
         </div>
         <div class="prob-box black-box">
           <span class="prob-label">Gukesh (B)</span>
-          <span class="prob-value" id="probBlack">5.7%</span>
+          <span class="prob-value" id="probBlack">6.6%</span>
         </div>
       </div>
 
@@ -67,17 +67,18 @@
         <!-- White Player -->
         <div class="player-col white-col" id="whitePlayerCard">
           <div class="player-meta">
+            <span class="turn-dot" id="whiteTurnDot" title="Thinking…"></span>
             <span class="player-name">Sindarov</span>
             <span class="player-elo">2782</span>
           </div>
-          <div class="clock-display" id="whiteClock">1:54:43</div>
-          <span class="pace-chip" id="whitePace">4.3m / move</span>
+          <div class="clock-display" id="whiteClock" contenteditable="true" spellcheck="false" title="Click to edit or sync with stream">1:35:54</div>
+          <span class="pace-chip" id="whitePace">3.6m / move</span>
         </div>
 
         <!-- Center VS / Delta -->
         <div class="center-col">
           <span class="vs-text">vs</span>
-          <div class="delta-chip" id="deltaChip" title="Clock Difference">+35m 30s</div>
+          <div class="delta-chip" id="deltaChip" title="Clock Difference">+16m 41s</div>
         </div>
 
         <!-- Black Player -->
@@ -85,10 +86,16 @@
           <div class="player-meta">
             <span class="player-name">Gukesh</span>
             <span class="player-elo">2710</span>
+            <span class="turn-dot" id="blackTurnDot" title="Thinking…"></span>
           </div>
-          <div class="clock-display" id="blackClock">1:19:13</div>
+          <div class="clock-display" id="blackClock" contenteditable="true" spellcheck="false" title="Click to edit or sync with stream">1:19:13</div>
           <span class="pace-chip warning" id="blackPace">2.9m / move</span>
         </div>
+      </div>
+
+      <!-- Live Sync / Hint Banner -->
+      <div class="clock-hint-row">
+        <span class="clock-hint-text">Clocks tick live · Click either time to match stream</span>
       </div>
 
       <!-- Zero Increment Warning -->
@@ -114,11 +121,11 @@
         </div>
         <div class="eval-pill">
           <span class="ep-label">Time Hazard</span>
-          <span class="ep-val" id="timeHazard">+0.09</span>
+          <span class="ep-val" id="timeHazard">+0.05</span>
         </div>
         <div class="eval-pill highlight">
           <span class="ep-label">Effective</span>
-          <span class="ep-val" id="effectiveEval">+0.36</span>
+          <span class="ep-val" id="effectiveEval">+0.32</span>
         </div>
       </div>
     </section>
@@ -126,7 +133,7 @@
     <!-- Controls & Footer -->
     <footer class="popup-footer">
       <div class="footer-left">
-        <button id="refreshBtn" class="btn btn-secondary" title="Fetch latest moves">
+        <button id="refreshBtn" class="btn btn-secondary" title="Fetch latest moves from DGT">
           <svg class="spin-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
             <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
             <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
@@ -134,7 +141,7 @@
           <span id="refreshLabel">Sync</span>
         </button>
 
-        <label class="auto-switch" title="Auto-refresh every 15s">
+        <label class="auto-switch" title="Auto-refresh moves from DGT every 15s">
           <input type="checkbox" id="autoSyncCheck" checked>
           <span class="slider round"></span>
           <span class="switch-label">Live</span>
