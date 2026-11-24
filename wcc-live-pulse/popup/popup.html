@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WCC 2026 Live Pulse</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="title-row">
+        <img class="app-icon" src="../icons/icon-48.png" alt="" width="34" height="34">
+        <div class="title-stack">
+          <h1>WCC Live Pulse</h1>
+          <span class="subtitle">Geneva 2026 · Game 1 of 14</span>
+        </div>
+      </div>
+      <div class="live-pill" id="livePill">
+        <span class="pulse-dot"></span>
+        <span class="pulse-text" id="pulseText">LIVE</span>
+      </div>
+    </header>
+
+    <!-- Main Hero Probability Card -->
+    <section class="glass hero-card" aria-label="Game 1 Win Probability">
+      <div class="card-top-row">
+        <span class="card-title">Game 1 Win Probability</span>
+        <span class="opening-badge" id="openingBadge">Berlin Defense</span>
+      </div>
+
+      <!-- Segmented Probability Bar -->
+      <div class="prob-bar-wrap">
+        <div class="prob-segment seg-white" id="segWhite" style="width: 21.9%;"></div>
+        <div class="prob-segment seg-draw" id="segDraw" style="width: 72.4%;"></div>
+        <div class="prob-segment seg-black" id="segBlack" style="width: 5.7%;"></div>
+      </div>
+
+      <!-- Three Odds Badges -->
+      <div class="prob-stats-grid">
+        <div class="prob-box white-box">
+          <span class="prob-label">Sindarov (W)</span>
+          <span class="prob-value" id="probWhite">21.9%</span>
+        </div>
+        <div class="prob-box draw-box">
+          <span class="prob-label">Draw</span>
+          <span class="prob-value" id="probDraw">72.4%</span>
+        </div>
+        <div class="prob-box black-box">
+          <span class="prob-label">Gukesh (B)</span>
+          <span class="prob-value" id="probBlack">5.7%</span>
+        </div>
+      </div>
+
+      <!-- Match Series Banner -->
+      <div class="match-banner">
+        <span class="match-label">14-Game Title Expectancy</span>
+        <span class="match-values" id="matchValues">Sindarov 75% · Gukesh 25%</span>
+      </div>
+    </section>
+
+    <!-- Clocks & Players Card -->
+    <section class="glass clock-card" aria-label="Player Clocks & Pace">
+      <div class="players-row">
+        <!-- White Player -->
+        <div class="player-col white-col" id="whitePlayerCard">
+          <div class="player-meta">
+            <span class="player-name">Sindarov</span>
+            <span class="player-elo">2782</span>
+          </div>
+          <div class="clock-display" id="whiteClock">1:54:43</div>
+          <span class="pace-chip" id="whitePace">4.3m / move</span>
+        </div>
+
+        <!-- Center VS / Delta -->
+        <div class="center-col">
+          <span class="vs-text">vs</span>
+          <div class="delta-chip" id="deltaChip" title="Clock Difference">+35m 30s</div>
+        </div>
+
+        <!-- Black Player -->
+        <div class="player-col black-col" id="blackPlayerCard">
+          <div class="player-meta">
+            <span class="player-name">Gukesh</span>
+            <span class="player-elo">2710</span>
+          </div>
+          <div class="clock-display" id="blackClock">1:19:13</div>
+          <span class="pace-chip warning" id="blackPace">2.9m / move</span>
+        </div>
+      </div>
+
+      <!-- Zero Increment Warning -->
+      <div class="time-control-alert" id="tcAlert">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true">
+          <path d="M8 1a7 7 0 1 0 7 7A7 7 0 0 0 8 1zm0 12.5a5.5 5.5 0 1 1 5.5-5.5A5.5 5.5 0 0 1 8 13.5zm.5-8.5h-1v4l3.5 2.1.5-.8-3-1.8z"/>
+        </svg>
+        <span id="tcText">27 moves to move 40 (0s increment)</span>
+      </div>
+    </section>
+
+    <!-- Telemetry & Position Bar -->
+    <section class="glass telemetry-card">
+      <div class="telemetry-row">
+        <span class="move-pill" id="movePill">Move 14 · White to move</span>
+        <span class="last-move" id="lastMove">Last: 13... Bd7</span>
+      </div>
+
+      <div class="engine-pills">
+        <div class="eval-pill">
+          <span class="ep-label">Engine Eval</span>
+          <span class="ep-val" id="engineEval">+0.25</span>
+        </div>
+        <div class="eval-pill">
+          <span class="ep-label">Time Hazard</span>
+          <span class="ep-val" id="timeHazard">+0.09</span>
+        </div>
+        <div class="eval-pill highlight">
+          <span class="ep-label">Effective</span>
+          <span class="ep-val" id="effectiveEval">+0.36</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls & Footer -->
+    <footer class="popup-footer">
+      <div class="footer-left">
+        <button id="refreshBtn" class="btn btn-secondary" title="Fetch latest moves">
+          <svg class="spin-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+          </svg>
+          <span id="refreshLabel">Sync</span>
+        </button>
+
+        <label class="auto-switch" title="Auto-refresh every 15s">
+          <input type="checkbox" id="autoSyncCheck" checked>
+          <span class="slider round"></span>
+          <span class="switch-label">Live</span>
+        </label>
+      </div>
+
+      <a id="lichessLink" class="broadcast-link" href="https://lichess.org/broadcast/fide-world-chess-championship-2026/game-1/xLgOJ6cb" target="_blank" rel="noopener">
+        Lichess ↗
+      </a>
+    </footer>
+
+    <div class="status-bar" id="statusBar">Updated just now</div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

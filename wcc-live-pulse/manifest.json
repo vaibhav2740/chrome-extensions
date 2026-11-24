@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "WCC 2026 Live Pulse",
+  "version": "1.0.0",
+  "description": "Live FIDE World Chess Championship probabilities, clock telemetry, and game analysis with liquid-glass HUD.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://lichess.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "WCC 2026 Live Pulse",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "minimum_chrome_version": "110"
+}
