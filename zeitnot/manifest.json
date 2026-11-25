@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Zeitnot: Live World Chess Championship",
-  "version": "1.1.0",
-  "description": "Live World Chess Championship companion: match score, win/draw/loss and title odds, ticking clocks and a time-trouble alert, on a toolbar badge and in a popup. Data from the free Lichess broadcast.",
+  "version": "2.0.0",
+  "description": "Live World Chess Championship companion: score, win/draw/loss and title odds, ticking clocks and time-trouble alerts.",
   "permissions": [
     "storage",
     "alarms"
@@ -25,6 +25,15 @@
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
+    }
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Z",
+        "mac": "Alt+Shift+Z"
+      },
+      "description": "Open Zeitnot"
     }
   },
   "icons": {
