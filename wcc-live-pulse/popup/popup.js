@@ -1,156 +1,147 @@
-// WCC Live Pulse - Pawnshot Ultra-Glass Controller
-import { calculateWccProbabilities } from './probability_engine.js';
+// WCC Live Pulse - Popup Controller
+import {
+  fetchWccSnapshot,
+  formatClockSeconds,
+  formatCountdown,
+  parseClockSeconds,
+} from '../shared/wcc_data.js';
+import {
+  calculateGameProbabilities,
+  identifyPlayer,
+} from '../shared/probability_engine.js';
 
-const BROADCAST_PGN_URL = 'https://lichess.org/api/broadcast/round/xLgOJ6cb.pgn';
+const STORAGE_KEY = 'wccPulseStateV2';
 
-// DOM Elements
 const el = {
+  matchScoreSub: document.getElementById('matchScoreSub'),
+  statusPill: document.getElementById('statusPill'),
+  pulseText: document.getElementById('pulseText'),
+  roundSwitcher: document.getElementById('roundSwitcher'),
+  tabLastRound: document.getElementById('tabLastRound'),
+  tabNextRound: document.getElementById('tabNextRound'),
+  heroTitle: document.getElementById('heroTitle'),
+  openingBadge: document.getElementById('openingBadge'),
   segWhite: document.getElementById('segWhite'),
   segDraw: document.getElementById('segDraw'),
   segBlack: document.getElementById('segBlack'),
-  probWhite: document.getElementById('probWhite'),
-  probDraw: document.getElementById('probDraw'),
-  probBlack: document.getElementById('probBlack'),
-  matchValues: document.getElementById('matchValues'),
-  openingBadge: document.getElementById('openingBadge'),
+  lblProb1: document.getElementById('lblProb1'),
+  valProb1: document.getElementById('valProb1'),
+  lblProb2: document.getElementById('lblProb2'),
+  valProb2: document.getElementById('valProb2'),
+  lblProb3: document.getElementById('lblProb3'),
+  valProb3: document.getElementById('valProb3'),
+  bannerLabel: document.getElementById('bannerLabel'),
+  bannerValue: document.getElementById('bannerValue'),
+  whiteName: document.getElementById('whiteName'),
+  whiteElo: document.getElementById('whiteElo'),
   whiteClock: document.getElementById('whiteClock'),
-  blackClock: document.getElementById('blackClock'),
   whiteTurnDot: document.getElementById('whiteTurnDot'),
-  blackTurnDot: document.getElementById('blackTurnDot'),
   whitePace: document.getElementById('whitePace'),
+  blackName: document.getElementById('blackName'),
+  blackElo: document.getElementById('blackElo'),
+  blackClock: document.getElementById('blackClock'),
+  blackTurnDot: document.getElementById('blackTurnDot'),
   blackPace: document.getElementById('blackPace'),
+  centerTopLabel: document.getElementById('centerTopLabel'),
   deltaChip: document.getElementById('deltaChip'),
+  tcAlert: document.getElementById('tcAlert'),
   tcText: document.getElementById('tcText'),
   movePill: document.getElementById('movePill'),
   lastMove: document.getElementById('lastMove'),
-  engineEval: document.getElementById('engineEval'),
-  timeHazard: document.getElementById('timeHazard'),
-  effectiveEval: document.getElementById('effectiveEval'),
+  evLbl1: document.getElementById('evLbl1'),
+  evVal1: document.getElementById('evVal1'),
+  evLbl2: document.getElementById('evLbl2'),
+  evVal2: document.getElementById('evVal2'),
+  evLbl3: document.getElementById('evLbl3'),
+  evVal3: document.getElementById('evVal3'),
   refreshBtn: document.getElementById('refreshBtn'),
   refreshLabel: document.getElementById('refreshLabel'),
   autoSyncCheck: document.getElementById('autoSyncCheck'),
+  lichessLink: document.getElementById('lichessLink'),
   statusBar: document.getElementById('statusBar'),
-  pulseText: document.getElementById('pulseText'),
 };
 
+let snapshot = null;
+let selectedRoundId = null;
 let autoSyncTimer = null;
-let liveTickTimer = null;
+let tickTimer = null;
 let isSyncing = false;
 let isEditingClock = false;
-
-// Default initial state (Game 1 Move 17)
-let currentState = {
-  white: 'Sindarov, Javokhir',
-  black: 'Gukesh D',
-  whiteElo: 2782,
-  blackElo: 2710,
-  round: '1.1',
-  opening: 'Berlin Defense',
-  lastMove: '17. b3',
-  moveNumber: 17,
-  isWhiteTurn: false, // 17. b3 was White's move, so now Black's turn!
-  whiteTimeStr: '1:18:08',
-  blackTimeStr: '1:04:54',
-  whiteTimeSec: 4688,
-  blackTimeSec: 3894,
-  evalPawns: 0.25,
-};
 
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 
   try {
-    const cached = await chrome.storage.local.get(['matchData', 'lastSyncAt', 'userAdjustedClocks']);
-    if (cached.matchData) {
-      currentState = { ...currentState, ...cached.matchData };
-      if (cached.userAdjustedClocks) {
-        if (cached.userAdjustedClocks.whiteTimeSec) currentState.whiteTimeSec = cached.userAdjustedClocks.whiteTimeSec;
-        if (cached.userAdjustedClocks.blackTimeSec) currentState.blackTimeSec = cached.userAdjustedClocks.blackTimeSec;
-        currentState.whiteTimeStr = formatSeconds(currentState.whiteTimeSec);
-        currentState.blackTimeStr = formatSeconds(currentState.blackTimeSec);
-      }
-      render(currentState, true);
-    } else {
-      render(currentState, true);
+    const cached = await chrome.storage.local.get([STORAGE_KEY]);
+    if (cached[STORAGE_KEY]) {
+      snapshot = cached[STORAGE_KEY];
+      renderSnapshot(snapshot, true);
     }
   } catch (err) {
-    console.warn('Storage read error:', err);
-    render(currentState, true);
+    console.warn('[WCC] Cache read failed:', err);
   }
 
-  startLiveTickTimer();
-  await syncMatchData(true);
+  startSecondTicker();
+  await syncNow(true);
   setupAutoSync();
 });
 
 function setupEventListeners() {
-  el.refreshBtn.addEventListener('click', async () => {
-    await syncMatchData(false);
+  el.refreshBtn.addEventListener('click', () => syncNow(false));
+  el.autoSyncCheck.addEventListener('change', setupAutoSync);
+
+  el.tabLastRound.addEventListener('click', async () => {
+    if (!snapshot?.lastFinishedRound) return;
+    selectedRoundId = snapshot.lastFinishedRound.id;
+    await syncNow(false);
   });
 
-  el.autoSyncCheck.addEventListener('change', () => {
-    setupAutoSync();
+  el.tabNextRound.addEventListener('click', async () => {
+    if (!snapshot?.nextRound) return;
+    selectedRoundId = snapshot.nextRound.id;
+    await syncNow(false);
   });
 
-  setupClockEditable(el.whiteClock, 'white');
-  setupClockEditable(el.blackClock, 'black');
+  setupEditableClock(el.whiteClock, 'white');
+  setupEditableClock(el.blackClock, 'black');
 }
 
-function setupClockEditable(clockElement, playerColor) {
-  clockElement.addEventListener('focus', () => {
+function setupEditableClock(clockEl, color) {
+  clockEl.addEventListener('focus', () => {
+    if (snapshot?.activeRound?.status !== 'LIVE') {
+      clockEl.blur();
+      return;
+    }
     isEditingClock = true;
   });
 
-  clockElement.addEventListener('blur', () => {
+  clockEl.addEventListener('blur', () => {
+    if (!isEditingClock) return;
     isEditingClock = false;
-    applyClockEdit(clockElement.textContent.trim(), playerColor);
+    if (snapshot?.activeRound?.status !== 'LIVE') return;
+
+    const sec = parseClockSeconds(clockEl.textContent.trim());
+    if (sec >= 0) {
+      const ar = snapshot.activeRound;
+      if (color === 'white') {
+        ar.white.timeSec = sec;
+        ar.white.timeStr = formatClockSeconds(sec);
+      } else {
+        ar.black.timeSec = sec;
+        ar.black.timeStr = formatClockSeconds(sec);
+      }
+      recomputeLiveRoundProbs();
+      renderSnapshot(snapshot, true);
+      el.statusBar.textContent = `Stream calibrated · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
   });
 
-  clockElement.addEventListener('keydown', (e) => {
+  clockEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      clockElement.blur();
+      clockEl.blur();
     }
   });
-}
-
-function applyClockEdit(rawText, playerColor) {
-  const sec = parseClockSeconds(rawText);
-  if (sec > 0) {
-    if (playerColor === 'white') {
-      currentState.whiteTimeSec = sec;
-      currentState.whiteTimeStr = formatSeconds(sec);
-    } else {
-      currentState.blackTimeSec = sec;
-      currentState.blackTimeStr = formatSeconds(sec);
-    }
-    chrome.storage.local.set({
-      userAdjustedClocks: {
-        whiteTimeSec: currentState.whiteTimeSec,
-        blackTimeSec: currentState.blackTimeSec,
-        setAt: Date.now(),
-      }
-    });
-    render(currentState, true);
-    el.statusBar.textContent = `Calibrated with stream at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  }
-}
-
-function startLiveTickTimer() {
-  if (liveTickTimer) clearInterval(liveTickTimer);
-  liveTickTimer = setInterval(() => {
-    if (isEditingClock) return;
-
-    if (currentState.isWhiteTurn && currentState.whiteTimeSec > 0) {
-      currentState.whiteTimeSec -= 1;
-      currentState.whiteTimeStr = formatSeconds(currentState.whiteTimeSec);
-    } else if (!currentState.isWhiteTurn && currentState.blackTimeSec > 0) {
-      currentState.blackTimeSec -= 1;
-      currentState.blackTimeStr = formatSeconds(currentState.blackTimeSec);
-    }
-
-    render(currentState, false);
-  }, 1000);
 }
 
 function setupAutoSync() {
@@ -159,15 +150,57 @@ function setupAutoSync() {
     autoSyncTimer = null;
   }
   if (el.autoSyncCheck.checked) {
-    autoSyncTimer = setInterval(async () => {
-      await syncMatchData(true);
-    }, 15000);
+    autoSyncTimer = setInterval(() => syncNow(true), 15000);
   }
 }
 
-async function syncMatchData(silent = false) {
+function startSecondTicker() {
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = setInterval(() => {
+    if (!snapshot || isEditingClock) return;
+    const ar = snapshot.activeRound;
+
+    if (ar.status === 'LIVE') {
+      if (ar.isWhiteTurn && ar.white.timeSec > 0) {
+        ar.white.timeSec -= 1;
+        ar.white.timeStr = formatClockSeconds(ar.white.timeSec);
+      } else if (!ar.isWhiteTurn && ar.black.timeSec > 0) {
+        ar.black.timeSec -= 1;
+        ar.black.timeStr = formatClockSeconds(ar.black.timeSec);
+      }
+      recomputeLiveRoundProbs();
+      renderSnapshot(snapshot, false);
+    } else if (snapshot.nextRound) {
+      // Update live countdown to next game cleanly (never touches player clocks!)
+      renderCountdownOnly(snapshot);
+    }
+  }, 1000);
+}
+
+function recomputeLiveRoundProbs() {
+  const ar = snapshot.activeRound;
+  const wProf = identifyPlayer(ar.white.fullName, 'white');
+  const bProf = identifyPlayer(ar.black.fullName, 'black');
+  ar.gameProbs = calculateGameProbabilities({
+    evalPawns: ar.evalPawns,
+    mateIn: ar.mateIn,
+    whiteTimeSec: ar.white.timeSec,
+    blackTimeSec: ar.black.timeSec,
+    moveNumber: ar.moveNumber,
+    plyCount: ar.plyCount,
+    whiteElo: ar.white.elo,
+    blackElo: ar.black.elo,
+    whiteFormBonus: wProf.formBonus,
+    blackFormBonus: bProf.formBonus,
+    opening: ar.opening,
+    result: ar.result,
+  });
+}
+
+async function syncNow(silent = false) {
   if (isSyncing) return;
   isSyncing = true;
+
   if (!silent) {
     const icon = el.refreshBtn.querySelector('svg');
     if (icon) icon.classList.add('spinning');
@@ -175,37 +208,18 @@ async function syncMatchData(silent = false) {
   }
 
   try {
-    const res = await fetch(BROADCAST_PGN_URL, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const pgnText = await res.text();
-    const parsed = parsePgn(pgnText);
-
-    const isNewMove = parsed.lastMove !== currentState.lastMove;
-    if (isNewMove) {
-      currentState = { ...currentState, ...parsed };
-      await chrome.storage.local.remove('userAdjustedClocks');
-    } else {
-      currentState.white = parsed.white;
-      currentState.black = parsed.black;
-      currentState.whiteElo = parsed.whiteElo;
-      currentState.blackElo = parsed.blackElo;
-      currentState.opening = parsed.opening;
-      currentState.isWhiteTurn = parsed.isWhiteTurn;
-      currentState.moveNumber = parsed.moveNumber;
+    const fresh = await fetchWccSnapshot(selectedRoundId);
+    // If a game just went LIVE while user wasn't explicitly locked, jump to LIVE
+    if (fresh.isAnyGameLive && !selectedRoundId) {
+      selectedRoundId = fresh.activeRound.id;
     }
-
-    await chrome.storage.local.set({
-      matchData: currentState,
-      lastSyncAt: Date.now(),
-    });
-
-    render(currentState, true);
-    el.statusBar.textContent = `DGT Synced · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
-    el.pulseText.textContent = 'LIVE';
+    snapshot = fresh;
+    await chrome.storage.local.set({ [STORAGE_KEY]: fresh });
+    renderSnapshot(fresh, true);
+    el.statusBar.textContent = `Lichess synced · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
   } catch (err) {
-    console.warn('[WCC Live Pulse] Fetch error, continuing with local ticker:', err);
-    el.statusBar.textContent = 'Offline / Ticking';
-    el.pulseText.textContent = 'STANDBY';
+    console.warn('[WCC] Sync failed:', err);
+    el.statusBar.textContent = snapshot ? 'Using cached Lichess data' : 'Offline · Unable to reach Lichess';
   } finally {
     isSyncing = false;
     if (!silent) {
@@ -216,155 +230,218 @@ async function syncMatchData(silent = false) {
   }
 }
 
-function parsePgn(pgn) {
-  const getHeader = (name) => {
-    const m = pgn.match(new RegExp(`\\[${name}\\s+"([^"]+)"\\]`));
-    return m ? m[1] : '';
-  };
+function formatScoreNum(n) {
+  return Number.isInteger(n) ? `${n}` : `${n}`;
+}
 
-  const white = getHeader('White') || 'Sindarov, Javokhir';
-  const black = getHeader('Black') || 'Gukesh D';
-  const whiteElo = parseInt(getHeader('WhiteElo') || '2782', 10);
-  const blackElo = parseInt(getHeader('BlackElo') || '2710', 10);
-  const openingFull = getHeader('Opening') || 'Ruy Lopez: Berlin Defense';
-  const opening = openingFull.includes('Berlin') ? 'Berlin Defense' : openingFull.split(':')[0];
-
-  const clkMatches = [...pgn.matchAll(/(\d+\.{1,3}\s*[^\s{}]+)\s*\{\s*\[%clk\s+([^\]]+)\]/g)];
-
-  let whiteTimeStr = null;
-  let blackTimeStr = null;
-  let lastMove = 'Game start';
-  let moveNumber = 1;
-  let isWhiteTurn = true;
-
-  if (clkMatches.length > 0) {
-    const last = clkMatches[clkMatches.length - 1];
-    lastMove = last[1].trim();
-
-    const moveMatch = lastMove.match(/^(\d+)(\.{1,3})/);
-    if (moveMatch) {
-      moveNumber = parseInt(moveMatch[1], 10);
-      isWhiteTurn = moveMatch[2] === '...';
-    }
-
-    for (let i = clkMatches.length - 1; i >= 0; i--) {
-      const notation = clkMatches[i][1];
-      const clk = clkMatches[i][2];
-      if (!notation.includes('...') && !whiteTimeStr) {
-        whiteTimeStr = clk;
-      }
-      if (notation.includes('...') && !blackTimeStr) {
-        blackTimeStr = clk;
-      }
-      if (whiteTimeStr && blackTimeStr) break;
-    }
+function formatEval(evalPawns, mateIn) {
+  if (mateIn !== null && mateIn !== undefined) {
+    return mateIn > 0 ? `#${mateIn}` : `-#${Math.abs(mateIn)}`;
   }
-
-  whiteTimeStr = whiteTimeStr || '1:18:08';
-  blackTimeStr = blackTimeStr || '1:04:54';
-
-  return {
-    white,
-    black,
-    whiteElo,
-    blackElo,
-    opening,
-    lastMove,
-    moveNumber,
-    isWhiteTurn,
-    whiteTimeStr,
-    blackTimeStr,
-    whiteTimeSec: parseClockSeconds(whiteTimeStr),
-    blackTimeSec: parseClockSeconds(blackTimeStr),
-    evalPawns: 0.25,
-  };
+  const v = Number(evalPawns || 0);
+  if (Math.abs(v) < 0.005) return '0.00';
+  return `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
 }
 
-function parseClockSeconds(str) {
-  if (!str) return 7200;
-  const parts = str.split(':').map((p) => parseInt(p, 10));
-  if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
-  if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
-  return 7200;
-}
+function renderCountdownOnly(data) {
+  const ar = data.activeRound;
+  const nr = data.nextRound;
+  if (!nr) return;
 
-function formatSeconds(totalSec) {
-  const sec = Math.max(0, Math.floor(totalSec));
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  const mm = String(m).padStart(2, '0');
-  const ss = String(s).padStart(2, '0');
-  return `${h}:${mm}:${ss}`;
-}
+  const msLeft = nr.startsAt - Date.now();
+  const cd = formatCountdown(msLeft);
 
-function render(data, updateClockText = true) {
-  const probData = calculateWccProbabilities({
-    evalPawns: data.evalPawns || 0.25,
-    whiteTimeSec: data.whiteTimeSec,
-    blackTimeSec: data.blackTimeSec,
-    moveNumber: data.moveNumber,
-    targetMove: 40,
-    whiteElo: data.whiteElo,
-    blackElo: data.blackElo,
-    whiteFormBonus: 25,
-    blackFormBonus: -10,
-  });
-
-  const { game1, match, clocks } = probData;
-
-  const wPct = (game1.whiteWin * 100).toFixed(1);
-  const dPct = (game1.draw * 100).toFixed(1);
-  const bPct = (game1.blackWin * 100).toFixed(1);
-
-  el.segWhite.style.width = `${wPct}%`;
-  el.segDraw.style.width = `${dPct}%`;
-  el.segBlack.style.width = `${bPct}%`;
-
-  el.probWhite.textContent = `${wPct}%`;
-  el.probDraw.textContent = `${dPct}%`;
-  el.probBlack.textContent = `${bPct}%`;
-
-  const sMatchPct = Math.round(match.sindarov * 100);
-  const gMatchPct = 100 - sMatchPct;
-  el.matchValues.textContent = `Sindarov ${sMatchPct}% · Gukesh ${gMatchPct}%`;
-
-  el.openingBadge.textContent = data.opening;
-  const turnLabel = data.isWhiteTurn ? 'White to move' : 'Black to move';
-  const displayMove = data.moveNumber + (data.isWhiteTurn ? 1 : 0);
-  el.movePill.textContent = `Move ${displayMove} · ${turnLabel}`;
-  el.lastMove.textContent = data.lastMove;
-
-  if (updateClockText && !isEditingClock) {
-    el.whiteClock.textContent = data.whiteTimeStr;
-    el.blackClock.textContent = data.blackTimeStr;
-  } else if (!isEditingClock) {
-    el.whiteClock.textContent = formatSeconds(data.whiteTimeSec);
-    el.blackClock.textContent = formatSeconds(data.blackTimeSec);
+  if (!data.isAnyGameLive && ar.status === 'FINISHED') {
+    el.pulseText.textContent = `NEXT · ${cd}`;
+    el.tcText.textContent = `${nr.name} starts in ${cd}`;
+  } else if (ar.status === 'UPCOMING') {
+    el.pulseText.textContent = `IN ${cd}`;
+    el.tcText.textContent = `Starts in ${cd} · ${formatStartTime(ar.startsAt)}`;
   }
+}
 
-  // Turn dots
-  if (data.isWhiteTurn) {
-    el.whiteTurnDot.classList.add('active');
-    el.blackTurnDot.classList.remove('active');
+function formatStartTime(ms) {
+  const d = new Date(ms);
+  const isToday = new Date().toDateString() === d.toDateString();
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return isToday ? `Today ${timeStr}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeStr}`;
+}
+
+function renderSnapshot(data, updateClocks = true) {
+  const { matchScore, matchExpectancy, activeRound: ar, nextRound, lastFinishedRound, isAnyGameLive } = data;
+
+  // Match score subtitle
+  el.matchScoreSub.textContent = `Score: Gukesh ${formatScoreNum(matchScore.gukesh)} – ${formatScoreNum(matchScore.sindarov)} Sindarov`;
+
+  // Link to exact Lichess board
+  el.lichessLink.href = ar.url || data.tourUrl;
+
+  // Round switcher (cleanly between games when both last & next exist and no game is live)
+  if (!isAnyGameLive && lastFinishedRound && nextRound) {
+    el.roundSwitcher.hidden = false;
+    const resSymbol = lastFinishedRound.result === '1/2-1/2' ? '½–½' : lastFinishedRound.result;
+    el.tabLastRound.textContent = `${lastFinishedRound.name} · Final (${resSymbol})`;
+    el.tabNextRound.textContent = `Next: ${nextRound.name}`;
+    el.tabLastRound.classList.toggle('is-active', ar.id === lastFinishedRound.id);
+    el.tabNextRound.classList.toggle('is-active', ar.id === nextRound.id);
   } else {
-    el.whiteTurnDot.classList.remove('active');
-    el.blackTurnDot.classList.add('active');
+    el.roundSwitcher.hidden = true;
   }
 
-  el.whitePace.textContent = `${clocks.tauWMin}m / mv`;
-  el.blackPace.textContent = `${clocks.tauBMin}m / mv`;
-
-  if (parseFloat(clocks.tauBMin) < 3.0) {
-    el.blackPace.classList.add('warning');
+  // Top-right status pill
+  el.statusPill.className = 'status-pill';
+  if (ar.status === 'LIVE') {
+    el.statusPill.classList.add('is-live');
+    el.pulseText.textContent = `LIVE · G${ar.roundNumber}`;
+  } else if (ar.status === 'FINISHED') {
+    if (nextRound) {
+      el.statusPill.classList.add('is-break');
+      el.pulseText.textContent = `NEXT · ${formatCountdown(nextRound.startsAt - Date.now())}`;
+    } else {
+      el.statusPill.classList.add('is-final');
+      el.pulseText.textContent = `FINAL · ${ar.result === '1/2-1/2' ? '½–½' : ar.result}`;
+    }
   } else {
-    el.blackPace.classList.remove('warning');
+    el.statusPill.classList.add('is-upcoming');
+    el.pulseText.textContent = `IN ${formatCountdown(ar.startsAt - Date.now())}`;
   }
 
+  // Hero Card
+  const sTitlePct = (matchExpectancy.sindarov * 100).toFixed(1);
+  const gTitlePct = (matchExpectancy.gukesh * 100).toFixed(1);
+  const tbPct = (matchExpectancy.tiebreakRisk * 100).toFixed(1);
+
+  if (ar.status === 'FINISHED') {
+    const resLabel = ar.result === '1/2-1/2' ? 'Draw (½–½)' : ar.result === '1-0' ? `${ar.white.name} Won` : `${ar.black.name} Won`;
+    el.heroTitle.textContent = 'Championship Title Odds';
+    el.openingBadge.textContent = `${ar.name}: ${resLabel}`;
+
+    // Bar shows Sindarov vs Gukesh overall title odds
+    el.segWhite.style.width = `${sTitlePct}%`;
+    el.segDraw.style.width = '0%';
+    el.segBlack.style.width = `${gTitlePct}%`;
+
+    el.lblProb1.textContent = 'Sindarov Title';
+    el.valProb1.textContent = `${sTitlePct}%`;
+    el.lblProb2.textContent = '7–7 Tiebreak';
+    el.valProb2.textContent = `${tbPct}%`;
+    el.lblProb3.textContent = 'Gukesh Title';
+    el.valProb3.textContent = `${gTitlePct}%`;
+
+    el.bannerLabel.textContent = `${ar.name} · ${ar.opening}`;
+    el.bannerValue.textContent = `${matchExpectancy.remainingGames} games left`;
+  } else {
+    // LIVE or UPCOMING game view
+    const { gameProbs } = ar;
+    const wPct = (gameProbs.whiteWin * 100).toFixed(1);
+    const dPct = (gameProbs.draw * 100).toFixed(1);
+    const bPct = (gameProbs.blackWin * 100).toFixed(1);
+
+    el.heroTitle.textContent = `${ar.name} Win Probability`;
+    el.openingBadge.textContent = ar.opening;
+
+    el.segWhite.style.width = `${wPct}%`;
+    el.segDraw.style.width = `${dPct}%`;
+    el.segBlack.style.width = `${bPct}%`;
+
+    el.lblProb1.textContent = `${ar.white.name} (W)`;
+    el.valProb1.textContent = `${wPct}%`;
+    el.lblProb2.textContent = 'Draw';
+    el.valProb2.textContent = `${dPct}%`;
+    el.lblProb3.textContent = `${ar.black.name} (B)`;
+    el.valProb3.textContent = `${bPct}%`;
+
+    el.bannerLabel.textContent = '14-Game Title Odds';
+    el.bannerValue.textContent = `Sindarov ${Math.round(matchExpectancy.sindarov * 100)}% · Gukesh ${Math.round(matchExpectancy.gukesh * 100)}%`;
+  }
+
+  // Players & Clocks
+  el.whiteName.textContent = ar.white.name;
+  el.whiteElo.textContent = ar.white.elo;
+  el.blackName.textContent = ar.black.name;
+  el.blackElo.textContent = ar.black.elo;
+
+  const isEditable = ar.status === 'LIVE';
+  el.whiteClock.contentEditable = isEditable ? 'true' : 'false';
+  el.blackClock.contentEditable = isEditable ? 'true' : 'false';
+  el.whiteClock.classList.toggle('is-editable', isEditable);
+  el.blackClock.classList.toggle('is-editable', isEditable);
+
+  if (updateClocks || !isEditingClock) {
+    el.whiteClock.textContent = ar.white.timeStr;
+    el.blackClock.textContent = ar.black.timeStr;
+  }
+
+  // Turn Dot: strictly LIVE only!
+  el.whiteTurnDot.classList.toggle('active', ar.status === 'LIVE' && ar.isWhiteTurn);
+  el.blackTurnDot.classList.toggle('active', ar.status === 'LIVE' && !ar.isWhiteTurn);
+
+  const { clocks } = ar.gameProbs;
+  el.centerTopLabel.textContent = ar.status === 'FINISHED' ? 'FINAL' : 'VS';
   el.deltaChip.textContent = clocks.deltaClockFormatted;
-  el.tcText.textContent = `${clocks.mRem} moves to move 40 (0s increment)`;
 
-  el.engineEval.textContent = `+${(data.evalPawns || 0.25).toFixed(2)}`;
-  el.timeHazard.textContent = `${game1.timeShift >= 0 ? '+' : ''}${game1.timeShift.toFixed(2)}`;
-  el.effectiveEval.textContent = `${game1.effectiveEval >= 0 ? '+' : ''}${game1.effectiveEval.toFixed(2)}`;
+  if (ar.status === 'FINISHED') {
+    el.whitePace.textContent = 'Final clock';
+    el.blackPace.textContent = 'Final clock';
+    el.whitePace.classList.remove('warning');
+    el.blackPace.classList.remove('warning');
+  } else if (ar.status === 'UPCOMING') {
+    el.whitePace.textContent = '120m / 40mv';
+    el.blackPace.textContent = '120m / 40mv';
+    el.whitePace.classList.remove('warning');
+    el.blackPace.classList.remove('warning');
+  } else {
+    el.whitePace.textContent = `${clocks.tauWMin}m / mv`;
+    el.blackPace.textContent = `${clocks.tauBMin}m / mv`;
+    el.whitePace.classList.toggle('warning', !clocks.isPhase2 && parseFloat(clocks.tauWMin) < 2.5);
+    el.blackPace.classList.toggle('warning', !clocks.isPhase2 && parseFloat(clocks.tauBMin) < 2.5);
+  }
+
+  // Bottom strip of clocks card
+  el.tcAlert.classList.remove('is-danger');
+  if (ar.status === 'LIVE') {
+    if (clocks.isPhase2) {
+      el.tcText.textContent = 'Move 41+ (+30s increment per move)';
+    } else {
+      el.tcAlert.classList.add('is-danger');
+      el.tcText.textContent = `${clocks.mRem} moves to move 40 (0s increment)`;
+    }
+  } else if (ar.status === 'FINISHED') {
+    el.tcText.textContent = nextRound
+      ? `${nextRound.name} starts in ${formatCountdown(nextRound.startsAt - Date.now())}`
+      : `${ar.name} finished · ${ar.completedMoves} moves played`;
+  } else {
+    el.tcText.textContent = `Starts in ${formatCountdown(ar.startsAt - Date.now())} · ${formatStartTime(ar.startsAt)}`;
+  }
+
+  // Telemetry Card
+  if (ar.status === 'FINISHED') {
+    el.movePill.textContent = `${ar.name} Final · ${ar.completedMoves} moves`;
+    el.lastMove.textContent = ar.lastMove;
+    el.evLbl1.textContent = 'Final Eval';
+    el.evVal1.textContent = formatEval(ar.evalPawns, ar.mateIn);
+    el.evLbl2.textContent = 'Result';
+    el.evVal2.textContent = ar.result === '1/2-1/2' ? '½–½' : ar.result;
+    el.evLbl3.textContent = 'Match Score';
+    el.evVal3.textContent = `${formatScoreNum(matchScore.gukesh)}–${formatScoreNum(matchScore.sindarov)}`;
+  } else if (ar.status === 'UPCOMING') {
+    el.movePill.textContent = `${ar.name} · ${formatStartTime(ar.startsAt)}`;
+    el.lastMove.textContent = `${ar.white.name} (W)`;
+    el.evLbl1.textContent = 'Pre-Game';
+    el.evVal1.textContent = '0.00';
+    el.evLbl2.textContent = 'Color/Form';
+    el.evVal2.textContent = formatEval(ar.gameProbs.formShift, null);
+    el.evLbl3.textContent = 'Effective';
+    el.evVal3.textContent = formatEval(ar.gameProbs.effectiveEval, null);
+  } else {
+    const turnLabel = ar.isWhiteTurn ? 'White to move' : 'Black to move';
+    el.movePill.textContent = `Move ${ar.moveNumber} · ${turnLabel}`;
+    el.lastMove.textContent = ar.lastMove;
+    el.evLbl1.textContent = 'Engine Eval';
+    el.evVal1.textContent = formatEval(ar.evalPawns, ar.mateIn);
+    el.evLbl2.textContent = 'Time Hazard';
+    el.evVal2.textContent = formatEval(ar.gameProbs.timeShift, null);
+    el.evLbl3.textContent = 'Effective';
+    el.evVal3.textContent = formatEval(ar.gameProbs.effectiveEval, ar.mateIn);
+  }
 }

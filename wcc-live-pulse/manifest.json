@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "WCC 2026 Live Pulse",
-  "version": "1.0.0",
-  "description": "Live FIDE World Chess Championship probabilities, clock telemetry, and game analysis with liquid-glass HUD.",
+  "version": "1.1.0",
+  "description": "Live FIDE World Chess Championship probabilities, match score, clock telemetry, and next-game countdown with Pawnshot liquid-glass HUD.",
   "permissions": [
     "storage",
     "alarms"
@@ -11,7 +11,8 @@
     "https://lichess.org/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup/popup.html",
