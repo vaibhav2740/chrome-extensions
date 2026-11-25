@@ -1,6 +1,9 @@
 // WCC 2026 Multi-Factor Probability & Match Expectancy Engine
-// Supports dynamic White/Black player assignment, phase-aware time controls (0s inc <=40, +30s >40),
-// real engine evaluations, and exact Backward-Induction DP for 14-game championship title odds.
+// Implements:
+//  1. Phase-aware FIDE WCC 2026 clock physics (Move <= 40: 0s inc; Move >= 41: +30m + 30s/move)
+//  2. Absolute zeitnot (time scarcity) hazard + log-ratio time differential
+//  3. Double-logistic / Gaussian Draw-Adjusted WDL conversion calibrated for 2750+ classical chess
+//  4. Exact Backward-Induction DP over remaining unplayed rounds for 14-game Championship Odds
 
 export const PLAYER_PROFILES = {
   sindarov: {
@@ -26,6 +29,21 @@ export function identifyPlayer(name, fallbackColor) {
   return fallbackColor === 'white' ? PLAYER_PROFILES.sindarov : PLAYER_PROFILES.gukesh;
 }
 
+function sigmoid(x) {
+  return 1.0 / (1.0 + Math.exp(-x));
+}
+
+function computeZeitnotStress(totalSec, tauSec, isPhase2) {
+  if (isPhase2) {
+    // With 30s/move increment, stress rises sharply only under ~2 minutes total
+    return 0.35 * sigmoid((120 - totalSec) / 40);
+  }
+  // Phase 1 (zero increment until move 40 completion): both low per-move budget and low absolute clock matter
+  const paceStress = sigmoid((75 - tauSec) / 22);
+  const reserveStress = 0.45 * sigmoid((240 - totalSec) / 80);
+  return paceStress + reserveStress;
+}
+
 export function calculateGameProbabilities({
   evalPawns = 0.0,
   mateIn = null,
@@ -40,22 +58,30 @@ export function calculateGameProbabilities({
   opening = '',
   result = '*',
 }) {
-  const isPhase2 = moveNumber >= 40;
-  const mRem = isPhase2 ? 20 : Math.max(1, 40 - moveNumber);
+  // FIDE WCC 2026: Move 40 is still Phase 1 (0s increment); Phase 2 begins at Move 41.
+  const safeMove = Math.max(1, moveNumber);
+  const isPhase2 = safeMove >= 41;
+  const mRem = isPhase2 ? 20 : Math.max(1, 41 - safeMove);
 
-  // Effective time per move (Phase 2 adds 30s/move increment buffer)
-  const effWhiteSec = isPhase2 ? whiteTimeSec + mRem * 30 : whiteTimeSec;
-  const effBlackSec = isPhase2 ? blackTimeSec + mRem * 30 : blackTimeSec;
+  const safeWhiteSec = Math.max(0, whiteTimeSec);
+  const safeBlackSec = Math.max(0, blackTimeSec);
+
+  // Effective time per move (Phase 2 adds 30s/move increment horizon)
+  const effWhiteSec = isPhase2 ? safeWhiteSec + mRem * 30 : safeWhiteSec;
+  const effBlackSec = isPhase2 ? safeBlackSec + mRem * 30 : safeBlackSec;
   const tauW = effWhiteSec / mRem;
   const tauB = effBlackSec / mRem;
-  const tauRatio = Math.max(0.2, Math.min(5.0, tauW / Math.max(1, tauB)));
+  const tauRatio = Math.max(0.15, Math.min(6.5, Math.max(1, tauW) / Math.max(1, tauB)));
 
-  // Clock delta formatted
-  const deltaSec = whiteTimeSec - blackTimeSec;
+  const deltaSec = safeWhiteSec - safeBlackSec;
   const deltaSign = deltaSec >= 0 ? '+' : '-';
   const deltaMin = Math.floor(Math.abs(deltaSec) / 60);
   const deltaRemSec = Math.abs(deltaSec) % 60;
   const deltaClockFormatted = `${deltaSign}${deltaMin}m ${String(deltaRemSec).padStart(2, '0')}s`;
+
+  const stressW = plyCount === 0 ? 0 : computeZeitnotStress(safeWhiteSec, tauW, isPhase2);
+  const stressB = plyCount === 0 ? 0 : computeZeitnotStress(safeBlackSec, tauB, isPhase2);
+  const maxStress = Math.max(stressW, stressB);
 
   const clocks = {
     tauWMin: (tauW / 60).toFixed(1),
@@ -65,86 +91,82 @@ export function calculateGameProbabilities({
     deltaSec,
     mRem,
     isPhase2,
-    whiteTimeSec,
-    blackTimeSec,
+    stressW: Number(stressW.toFixed(2)),
+    stressB: Number(stressB.toFixed(2)),
+    whiteTimeSec: safeWhiteSec,
+    blackTimeSec: safeBlackSec,
   };
 
-  // Exact terminal outcome when game is already finished
   if (result === '1-0') {
-    return {
-      whiteWin: 1,
-      draw: 0,
-      blackWin: 0,
-      effectiveEval: evalPawns,
-      timeShift: 0,
-      formShift: 0,
-      drawBaseline: 0,
-      clocks,
-    };
+    return { whiteWin: 1, draw: 0, blackWin: 0, effectiveEval: evalPawns, timeShift: 0, formShift: 0, drawBaseline: 0, clocks };
   }
   if (result === '0-1') {
-    return {
-      whiteWin: 0,
-      draw: 0,
-      blackWin: 1,
-      effectiveEval: evalPawns,
-      timeShift: 0,
-      formShift: 0,
-      drawBaseline: 0,
-      clocks,
-    };
+    return { whiteWin: 0, draw: 0, blackWin: 1, effectiveEval: evalPawns, timeShift: 0, formShift: 0, drawBaseline: 0, clocks };
   }
   if (result === '1/2-1/2') {
-    return {
-      whiteWin: 0,
-      draw: 1,
-      blackWin: 0,
-      effectiveEval: 0,
-      timeShift: 0,
-      formShift: 0,
-      drawBaseline: 1,
-      clocks,
-    };
+    return { whiteWin: 0, draw: 1, blackWin: 0, effectiveEval: 0, timeShift: 0, formShift: 0, drawBaseline: 1, clocks };
   }
 
-  // Handle forced mate evaluations
+  // Handle forced mate evaluations smoothly
   const numericEval =
     mateIn !== null && mateIn !== undefined
       ? mateIn > 0
-        ? 15
-        : -15
-      : evalPawns;
+        ? 12
+        : -12
+      : Number(evalPawns || 0);
 
-  // Baseline draw expectation (Berlin Defense has higher draw rate; pre-game ~63%)
-  const isBerlin = (opening || '').toLowerCase().includes('berlin');
-  const dMax = plyCount === 0 ? 0.63 : isBerlin ? 0.74 : 0.66;
-  const sigmaD = 0.85;
+  // 1. Time Hazard Shift (log-ratio + asymmetric zeitnot stress)
+  const ratioWeight = isPhase2 ? 0.10 : 0.30 * (mRem / 40.0);
+  const evalTimeShift =
+    plyCount === 0
+      ? 0
+      : ratioWeight * Math.log(tauRatio) + 0.22 * (stressB - stressW);
+
+  // 2. Rating & Form Prior (+0.15 pawns White first-move edge pre-game)
+  const deltaElo = whiteElo + whiteFormBonus - (blackElo + blackFormBonus);
+  const whiteInitBias = plyCount === 0 ? 0.15 : 0;
+  const eloShift = (deltaElo / 400.0) * 0.60 + whiteInitBias;
+
+  // 3. Combined Effective Evaluation
+  const eEff = numericEval + evalTimeShift + eloShift;
+
+  // 4. Context-Aware Draw Baseline
+  const lowerOpen = (opening || '').toLowerCase();
+  const isSolidOpening =
+    lowerOpen.includes('berlin') ||
+    lowerOpen.includes('petrov') ||
+    lowerOpen.includes('petroff') ||
+    lowerOpen.includes('exchange');
+  let dMax = plyCount === 0 ? 0.62 : isSolidOpening ? 0.72 : 0.65;
+
+  // Late simplified equal endgames naturally draw more often when not in zeitnot
+  if (plyCount >= 60 && Math.abs(numericEval) <= 0.30) {
+    dMax += 0.07;
+  }
+  // Acute zero-increment zeitnot injects blunder variance, compressing draw stability
+  if (maxStress > 0.35) {
+    dMax -= 0.15 * Math.min(1, maxStress - 0.35);
+  }
+  dMax = Math.max(0.32, Math.min(0.84, dMax));
+
+  const sigmaD = 0.90;
+  const evalForDraw = numericEval + evalTimeShift * 0.75;
+  const dFloor = mateIn !== null && mateIn !== undefined ? 0.001 : 0.02;
   const dBase = Math.min(
-    0.94,
-    Math.max(0.04, dMax * Math.exp(-(numericEval ** 2) / (2 * sigmaD ** 2)))
+    0.92,
+    Math.max(dFloor, dMax * Math.exp(-(evalForDraw ** 2) / (2 * sigmaD ** 2)))
   );
   const pDecisive = 1.0 - dBase;
 
-  // Zero-increment clock hazard shift (only strong in Phase 1 before move 40)
-  const timeWeight = isPhase2 ? 0.12 : 0.35 * (mRem / 40.0);
-  const evalTimeShift = plyCount === 0 ? 0 : timeWeight * Math.log(tauRatio);
+  // 5. Logistic Decisive Partitioning
+  const k = 3.2;
+  const wShare = sigmoid(k * eEff);
 
-  // Rating & form prior (+0.12 pawns White first-move advantage if pre-game ply 0)
-  const deltaElo = whiteElo + whiteFormBonus - (blackElo + blackFormBonus);
-  const whiteInitBias = plyCount === 0 ? 0.12 : 0;
-  const eloShift = (deltaElo / 400.0) * 0.65 + whiteInitBias;
-
-  const eEff = numericEval + evalTimeShift + eloShift;
-
-  // Logistic decisive partitioning
-  const beta = 1.6;
-  const wDecisive = 1.0 / (1.0 + Math.pow(10, -eEff * beta));
-
-  let pWhiteWin = pDecisive * wDecisive;
-  let pBlackWin = pDecisive * (1.0 - wDecisive);
+  let pWhiteWin = pDecisive * wShare;
+  let pBlackWin = pDecisive * (1.0 - wShare);
   let pDraw = dBase;
 
-  const total = pWhiteWin + pDraw + pBlackWin;
+  const total = pWhiteWin + pDraw + pBlackWin || 1;
   pWhiteWin /= total;
   pBlackWin /= total;
   pDraw /= total;
@@ -169,6 +191,7 @@ export function calculateMatchExpectancy({
   sindarovScore = 0,
   gukeshScore = 0,
   completedGames = 0,
+  unplayedRoundNumbers = null,
   liveRoundNumber = null,
   liveGameProbs = null, // { whiteWin, draw, blackWin } for liveRoundNumber
   sindarovWhiteInRound = (roundNum) => roundNum % 2 === 1, // Game 1,3,5... Sindarov White
@@ -183,12 +206,16 @@ export function calculateMatchExpectancy({
     return { sindarov: 0, gukesh: 1, tiebreakRisk: 0, remainingGames: 0 };
   }
 
-  // Tiebreak edge based on classical+rapid rating & form
+  const remainingList =
+    Array.isArray(unplayedRoundNumbers) && unplayedRoundNumbers.length > 0
+      ? unplayedRoundNumbers
+      : Array.from({ length: Math.max(0, 14 - completedGames) }, (_, i) => completedGames + i + 1);
+
+  // Tiebreak edge based on classical + rapid strength
   const sEffRapid = PLAYER_PROFILES.sindarov.elo + PLAYER_PROFILES.sindarov.rapidBonus;
   const gEffRapid = PLAYER_PROFILES.gukesh.elo + PLAYER_PROFILES.gukesh.rapidBonus;
   const tiebreakSindarovProb = 1.0 / (1.0 + Math.pow(10, -(sEffRapid - gEffRapid) / 400.0));
 
-  // Build per-game outcome probabilities { pSWin, pDraw, pGWin } for remaining rounds
   const preGameSindarovWhite = calculateGameProbabilities({
     evalPawns: 0,
     plyCount: 0,
@@ -218,13 +245,11 @@ export function calculateMatchExpectancy({
       : { pS: preGameGukeshWhite.blackWin, pD: preGameGukeshWhite.draw, pG: preGameGukeshWhite.whiteWin };
   }
 
-  // DP state distribution from current score forward through game 14
-  // key = `${sHalf},${gHalf}` -> probability mass
   let dist = new Map([[`${sHalfInit},${gHalfInit}`, 1.0]]);
   let pSWinMatch = 0;
   let pGWinMatch = 0;
 
-  for (let r = completedGames + 1; r <= 14; r++) {
+  for (const r of remainingList) {
     const { pS, pD, pG } = gameProbsForRound(r);
     const nextDist = new Map();
 
@@ -251,7 +276,6 @@ export function calculateMatchExpectancy({
     dist = nextDist;
   }
 
-  // Any remaining mass after game 14 is 7.0 - 7.0 (14,14) -> Tiebreaks
   let pTiebreak = 0;
   for (const [key, prob] of dist.entries()) {
     const [s, g] = key.split(',').map(Number);
@@ -269,6 +293,6 @@ export function calculateMatchExpectancy({
     sindarov: pSWinMatch / norm,
     gukesh: pGWinMatch / norm,
     tiebreakRisk: pTiebreak,
-    remainingGames: Math.max(0, 14 - completedGames),
+    remainingGames: remainingList.length,
   };
 }
