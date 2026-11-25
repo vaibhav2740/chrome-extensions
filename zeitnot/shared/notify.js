@@ -49,10 +49,12 @@ export function detectEvents({ prev, next, detail, settings, notified = [], now 
 
   // Game finished
   for (const round of next.rounds) {
-    if (round.status !== 'FINISHED') continue;
+    // "Finished" without a result yet (Lichess flipped the round before the result reached us): wait for it.
+    if (round.status !== 'FINISHED' || round.result === '*') continue;
     const id = `result:${round.id}`;
     if (seen.has(id)) continue;
-    const wasFinished = prev ? prev.rounds.find((r) => r.id === round.id)?.status === 'FINISHED' : true;
+    const before = prev ? prev.rounds.find((r) => r.id === round.id) : null;
+    const wasFinished = prev ? Boolean(before) && before.status === 'FINISHED' && before.result !== '*' : true;
     if (wasFinished) {
       seen.add(id); // already known: first run, or finished before we looked
       continue;

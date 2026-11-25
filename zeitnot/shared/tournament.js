@@ -17,7 +17,7 @@ import { deriveGame, matchOdds } from './live.js';
 export const SNAPSHOT_VERSION = 3;
 const HOUR = 3600 * 1000;
 
-export const emptyCache = () => ({ pairings: {}, results: {}, cloud: null, pgnAt: 0, roundCount: 0 });
+export const emptyCache = () => ({ pairings: {}, results: {}, checked: {}, cloud: null, pgnAt: 0, roundCount: 0 });
 
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 
@@ -282,9 +282,8 @@ function detailIsFinal(detail, now) {
   return age < 30 * 60 * 1000 || sinceEnd > 36 * HOUR;
 }
 
-async function readFinishedDetail({ client, meta, pairing, now }) {
-  const { body } = await client.text(roundPgnUrl(meta.id));
-  const pgn = parseGame(body);
+async function readFinishedDetail({ client, meta, pairing, now, pgn: already = null }) {
+  const pgn = already || parseGame((await client.text(roundPgnUrl(meta.id))).body);
   return buildRoundDetail({ meta, status: 'FINISHED', pairing, pgn, fetchedAt: now });
 }
 
@@ -293,7 +292,7 @@ async function readFinishedDetail({ client, meta, pairing, now }) {
  * Throws a LichessError when the tour list itself cannot be read, so the caller can back off.
  */
 export async function syncTournament({ client, cache: prevCache = emptyCache(), details: prevDetails = {}, now = Date.now() }) {
-  const cache = { ...emptyCache(), ...prevCache, pairings: { ...prevCache.pairings }, results: { ...prevCache.results } };
+  const cache = { ...emptyCache(), ...prevCache, pairings: { ...prevCache.pairings }, results: { ...prevCache.results }, checked: { ...prevCache.checked } };
   // First run: ask for the tour PGN at the same time as the tour JSON instead of one after the other.
   const early = cache.pgnAt ? null : client.text(TOUR_PGN_URL).catch((err) => err);
   const { body: tourJson } = await client.json(TOUR_URL);
@@ -321,6 +320,27 @@ export async function syncTournament({ client, cache: prevCache = emptyCache(), 
       cache.roundCount = meta.length;
     }
   }
+
+  // A game can end, and Lichess flip its round to "finished", between two polls. Its own PGN (1 KB) has the result
+  // right away; waiting for the tour PGN refresh would leave the score and any notification a couple of minutes behind.
+  // A finished round that never gets a result (abandoned, say) is only re-checked every five minutes.
+  const justRead = new Map(); // round id -> parsed PGN, so a round read here is not downloaded again below
+  const unresolved = meta
+    .filter((m) => m.finished && !cache.results[m.id] && !(cache.checked[m.id] && now - cache.checked[m.id] < 5 * 60 * 1000))
+    .slice(-3);
+  await Promise.all(
+    unresolved.map(async (m) => {
+      cache.checked[m.id] = now;
+      try {
+        const { body } = await client.text(roundPgnUrl(m.id));
+        const pgn = parseGame(body);
+        justRead.set(m.id, pgn);
+        if (pgn.result !== '*') cache.results[m.id] = pgn.result;
+      } catch {
+        // The next sync tries again.
+      }
+    })
+  );
 
   const details = { ...prevDetails };
   let liveMeta = meta.find((m) => statusOf(m, cache.results) === 'LIVE') || null;
@@ -364,7 +384,7 @@ export async function syncTournament({ client, cache: prevCache = emptyCache(), 
     const pairing = cache.pairings[focusMeta.id];
     if (focusStatus === 'FINISHED' && !detailIsFinal(details[focusMeta.id], now)) {
       try {
-        details[focusMeta.id] = await readFinishedDetail({ client, meta: focusMeta, pairing, now });
+        details[focusMeta.id] = await readFinishedDetail({ client, meta: focusMeta, pairing, now, pgn: justRead.get(focusMeta.id) });
       } catch (err) {
         if (!details[focusMeta.id]) details[focusMeta.id] = buildRoundDetail({ meta: focusMeta, status: 'FINISHED', pairing, fetchedAt: now });
       }

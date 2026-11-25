@@ -93,3 +93,15 @@ test('the remembered list is capped', async () => {
   const many = Array.from({ length: 1000 }, (_, i) => `x:${i}`);
   assert.equal(detectEvents({ prev: null, next: snapshot, detail: null, settings: settings(), notified: many, now }).notified.length, 300);
 });
+
+test('a round flagged finished before its result arrives is announced when the result does, never as "*"', async () => {
+  const { snapshot, now } = await liveSnapshot();
+  const flagged = finish(snapshot, 1, '*'); // Lichess flipped the round; the result has not reached us yet
+  const wait = detectEvents({ prev: snapshot, next: flagged, detail: null, settings: settings(), notified: [], now });
+  assert.deepEqual(wait.events, []);
+  assert(!wait.notified.includes(`result:${snapshot.rounds[1].id}`), 'still pending, not marked as seen');
+  const known = finish(snapshot, 1, '1/2-1/2');
+  const out = detectEvents({ prev: flagged, next: known, detail: null, settings: settings(), notified: wait.notified, now });
+  assert.equal(out.events.length, 1);
+  assert.equal(out.events[0].title, 'Game 2: ½–½');
+});

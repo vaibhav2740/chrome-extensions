@@ -275,3 +275,41 @@ test('buildRoundDetail copes with unknown players and missing data', () => {
   assert.equal(odd.clocks.blackSec, 900 - 10);
   assert.equal(odd.plyCount, 59);
 });
+
+test('a round that finished between two polls gets its result from its own PGN at once, not minutes later', async () => {
+  const live = clientFor(liveRoutes());
+  const synced = await syncTournament({ client: live.client, now: NOW });
+  assert.equal(synced.snapshot.rounds[1].status, 'LIVE');
+
+  const tour = fixtureJson('tour.json');
+  delete tour.rounds[1].ongoing;
+  tour.rounds[1].finished = true;
+  const ended = fixture('round-live.pgn').replace('[Result "*"]', '[Result "0-1"]').replace(/ \*\s*$/, ' 0-1\n');
+  const { client, log } = clientFor(liveRoutes({ 'broadcast/qfkdt8mn': { body: tour }, 'broadcast/round/L3j03TZq.pgn': ended }));
+  const after = await syncTournament({ client, cache: synced.cache, details: synced.details, now: NOW + 40000 });
+  assert.equal(after.snapshot.rounds[1].status, 'FINISHED');
+  assert.equal(after.snapshot.rounds[1].result, '0-1');
+  assert.deepEqual([after.snapshot.score.a, after.snapshot.score.b], [0.5, 1.5], 'Gukesh had White and lost');
+  assert.equal(after.details['L3j03TZq'].result, '0-1');
+  assert.deepEqual(log, ['broadcast/qfkdt8mn', 'broadcast/round/L3j03TZq.pgn'], 'the tour list and that one small PGN: no tour PGN, no second download');
+});
+
+test('a finished round that never gets a result is re-checked at most every five minutes', async () => {
+  const tour = fixtureJson('tour.json');
+  delete tour.rounds[1].ongoing;
+  tour.rounds[1].finished = true;
+  const { client, log } = clientFor(liveRoutes({ 'broadcast/qfkdt8mn': { body: tour } })); // its PGN still says "*"
+  const roundPgnCalls = () => log.filter((u) => u === 'broadcast/round/L3j03TZq.pgn').length;
+
+  const first = await syncTournament({ client, now: NOW });
+  assert(roundPgnCalls() >= 1);
+  assert.equal(first.cache.checked['L3j03TZq'], NOW);
+
+  log.length = 0;
+  const soon = await syncTournament({ client, cache: first.cache, details: first.details, now: NOW + 30000 });
+  assert.equal(soon.cache.checked['L3j03TZq'], NOW, 'not asked again after 30 s');
+  assert(!log.includes('broadcast/qfkdt8mn.pgn'));
+
+  const later = await syncTournament({ client, cache: soon.cache, details: soon.details, now: NOW + 6 * 60000 });
+  assert.equal(later.cache.checked['L3j03TZq'], NOW + 6 * 60000, 'asked again after five minutes');
+});
