@@ -1,11 +1,11 @@
 # chrome-extensions
 
-Small Chrome extensions (Manifest V3). Load them unpacked; Pawnshot is also being prepared for the Chrome Web Store.
+Small Chrome extensions (Manifest V3). Load them unpacked; Pawnshot and Zeitnot are also being prepared for the Chrome Web Store.
 
 | Extension | What it does |
 |---|---|
 | [Pawnshot](board-analyzer) | Floating liquid-glass analysis board with in-browser Stockfish 19 on any page. Reads the board from chess.com / lichess or scans one from any picture or YouTube video (on-device AI, nothing uploaded), can follow a video move by move, shows the best move and lines, and lets you play moves on the panel board. Locks itself during live games and puzzles. Free plan plus a one-time Premium. |
-| [Zeitnot](zeitnot) | Live World Chess Championship companion: match score, win/draw/loss odds, title odds, ticking clocks and time-trouble alerts on a toolbar badge, from the free Lichess broadcast. No account, no keys. |
+| [Zeitnot](zeitnot) | Live World Chess Championship companion from the free Lichess broadcast: match score, win/draw/loss and title odds, ticking clocks, the stakes of each result, a toolbar badge, spoiler shield and optional alerts. No account, no keys. |
 | [regqube-ai-player](regqube-ai-player) | **Krillion Bot** — AI sidekick for Krillion Puffer Party. Reads the category, lines up answers with Groq + Gemini, tracks what others said, and can play your turn automatically. Needs your own API keys (see its README). |
 
 ## Install any extension
