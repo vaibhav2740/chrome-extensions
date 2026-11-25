@@ -50,3 +50,15 @@ export function liveRoutes(overrides = {}) {
     ...overrides,
   };
 }
+
+import { createLichessClient } from '../shared/lichess.js';
+import { syncTournament } from '../shared/tournament.js';
+
+/** A real snapshot built from the fixtures. `mutate(tourJson)` can change the tour first. */
+export async function liveSnapshot({ now = 1795617000000, mutate, routes = {} } = {}) {
+  const tour = fixtureJson('tour.json');
+  if (mutate) mutate(tour);
+  const client = createLichessClient({ fetchFn: makeFetch(liveRoutes({ 'broadcast/qfkdt8mn': { body: tour }, ...routes })), now: () => now });
+  const out = await syncTournament({ client, now });
+  return { ...out, now };
+}
