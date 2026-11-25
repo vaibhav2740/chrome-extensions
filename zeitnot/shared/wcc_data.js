@@ -65,7 +65,7 @@ export function formatCountdown(msRemaining) {
  */
 export function computeBadgeSpec(snapshot, now = Date.now()) {
   if (!snapshot || !snapshot.activeRound) {
-    return { text: '', color: '#6366f1', title: 'WCC 2026 Live Pulse' };
+    return { text: '', color: '#6366f1', title: 'Zeitnot' };
   }
 
   const { activeRound: ar, matchScore, nextRound, isAnyGameLive } = snapshot;

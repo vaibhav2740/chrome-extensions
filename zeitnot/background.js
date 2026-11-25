@@ -1,4 +1,4 @@
-// WCC 2026 Live Pulse - Background Service Worker (ES Module)
+// Zeitnot - Background Service Worker (ES Module)
 import {
   computeBadgeSpec,
   fetchWccSnapshot,
@@ -40,7 +40,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     try {
       await syncAndAnchorSnapshot();
     } catch (err) {
-      console.warn('[WCC Live Pulse] Initial sync failed:', err);
+      console.warn('[Zeitnot] Initial sync failed:', err);
     }
   });
 
@@ -49,7 +49,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     try {
       await syncAndAnchorSnapshot();
     } catch (err) {
-      console.warn('[WCC Live Pulse] Startup sync failed:', err);
+      console.warn('[Zeitnot] Startup sync failed:', err);
     }
   });
 
@@ -58,7 +58,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
       try {
         await syncAndAnchorSnapshot();
       } catch (err) {
-        console.warn('[WCC Live Pulse] Alarm sync failed:', err);
+        console.warn('[Zeitnot] Alarm sync failed:', err);
       }
     }
   });

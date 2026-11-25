@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "WCC 2026 Live Pulse",
+  "name": "Zeitnot: Live World Chess Championship",
   "version": "1.1.0",
   "description": "Live FIDE World Chess Championship probabilities, match score, clock telemetry, and next-game countdown with Pawnshot liquid-glass HUD.",
   "permissions": [
@@ -16,7 +16,7 @@
   },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "WCC 2026 Live Pulse",
+    "default_title": "Zeitnot",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",

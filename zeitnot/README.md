@@ -1,4 +1,4 @@
-# WCC 2026 Live Pulse
+# Zeitnot
 
 A minimalist Manifest V3 Chrome Extension delivering live FIDE World Chess Championship probabilities, clock physics, match scores, and toolbar badge telemetry in an Apple Liquid Glass + Pawnshot HUD.
 
@@ -26,7 +26,7 @@ A minimalist Manifest V3 Chrome Extension delivering live FIDE World Chess Champ
 ## Architecture
 
 ```
-wcc-live-pulse/
+zeitnot/
 ├── manifest.json                 # Manifest V3 config (ES module background worker)
 ├── background.js                 # Periodic Lichess alarm sync, clock anchor & toolbar badge
 ├── shared/
@@ -48,7 +48,7 @@ wcc-live-pulse/
 Run the automated test suite (Node 20+):
 
 ```bash
-node --test wcc-live-pulse/test/wcc_pulse.test.mjs
+node --test zeitnot/test/wcc_pulse.test.mjs
 ```
 
 ---
@@ -58,6 +58,6 @@ node --test wcc-live-pulse/test/wcc_pulse.test.mjs
 1. Open `chrome://extensions/` and turn on **Developer mode**.
 2. Click **Load unpacked** (or **Reload 🔄** after updates) and select:
    ```bash
-   ~/personal/chrome-extensions/wcc-live-pulse
+   ~/personal/chrome-extensions/zeitnot
    ```
-3. Pin **WCC 2026 Live Pulse** to your toolbar.
+3. Pin **Zeitnot** to your toolbar.
