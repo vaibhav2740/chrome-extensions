@@ -5,6 +5,8 @@ export const DETAILS_KEY = 'zeitnot:v3:details'; // { [roundId]: round detail }
 export const CACHE_KEY = 'zeitnot:v3:cache'; // pairings, finished results, last cloud eval: what never needs fetching twice
 export const META_KEY = 'zeitnot:v3:meta'; // { failures, lastError, lastAttemptAt, blockedUntil, notified }
 
+export const SNAPSHOT_VERSION = 3;
+
 export const MSG_SYNC = 'zeitnot:sync';
 export const MSG_ROUND = 'zeitnot:round';
 

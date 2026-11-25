@@ -313,3 +313,19 @@ test('a finished round that never gets a result is re-checked at most every five
   const later = await syncTournament({ client, cache: soon.cache, details: soon.details, now: NOW + 6 * 60000 });
   assert.equal(later.cache.checked['L3j03TZq'], NOW + 6 * 60000, 'asked again after five minutes');
 });
+
+test('if a finished game\'s own PGN cannot be read, its detail still carries the result the snapshot knows', async () => {
+  const tour = fixtureJson('tour.json');
+  delete tour.rounds[1].ongoing;
+  tour.rounds[1].finished = true;
+  const pgn = fixture('tour.pgn').replace(/(\[Round "2\.1"\][\s\S]*?\[Result )"\*"/, '$1"1-0"');
+  const { client } = clientFor({ 'broadcast/qfkdt8mn.pgn': pgn, 'broadcast/qfkdt8mn': { body: tour } }); // round PGN: 404
+  const { snapshot, details } = await syncTournament({ client, now: NOW });
+  assert.equal(snapshot.rounds[1].result, '1-0');
+  const d = details[snapshot.focusRoundId];
+  assert.equal(d.status, 'FINISHED');
+  assert.equal(d.result, '1-0', 'not "*"');
+  assert.equal(deriveGame(snapshot, d, NOW).probs.whiteWin, 1);
+  const other = await fetchRoundDetail({ client, roundId: snapshot.rounds[0].id, snapshot, cache: { pairings: {}, results: {} }, details: {}, now: NOW }).catch((e) => e);
+  assert(other instanceof Error, 'a round that cannot be read is an error for the caller, not a made-up detail');
+});

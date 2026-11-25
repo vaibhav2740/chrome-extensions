@@ -13,8 +13,9 @@ import {
 } from './event.js';
 import { parseGame, splitPgnGames } from './pgn.js';
 import { deriveGame, matchOdds } from './live.js';
+import { SNAPSHOT_VERSION } from './keys.js';
 
-export const SNAPSHOT_VERSION = 3;
+export { SNAPSHOT_VERSION };
 const HOUR = 3600 * 1000;
 
 export const emptyCache = () => ({ pairings: {}, results: {}, checked: {}, cloud: null, pgnAt: 0, roundCount: 0 });
@@ -97,7 +98,7 @@ function playerInfo({ idx, name, fideId, rating, title, fed }) {
  * Everything the popup needs to draw one game. `game` is the round JSON's game (live only), `pgn` the parsed PGN,
  * `cloud` a cloud eval ({pawns, mate} or null). `ageMs` is how stale the CDN copy of the live JSON was.
  */
-export function buildRoundDetail({ meta, status, pairing, game = null, pgn = null, cloud = null, fetchedAt, ageMs = 0 }) {
+export function buildRoundDetail({ meta, status, pairing, game = null, pgn = null, cloud = null, knownResult = '*', fetchedAt, ageMs = 0 }) {
   const whiteIdx = whiteIndexFor(meta, pairing);
   const apiW = game?.players?.[0];
   const apiB = game?.players?.[1];
@@ -121,7 +122,9 @@ export function buildRoundDetail({ meta, status, pairing, game = null, pgn = nul
     fed: apiB?.fed,
   });
 
-  const result = normalizeResult(pgn?.result, game?.status);
+  // `knownResult` is what the cached tournament results say, for when this round's own PGN could not be read.
+  const fromFeed = normalizeResult(pgn?.result, game?.status);
+  const result = fromFeed !== '*' ? fromFeed : knownResult || '*';
   const finalStatus = result !== '*' ? 'FINISHED' : status;
   const live = finalStatus === 'LIVE';
 
@@ -282,9 +285,9 @@ function detailIsFinal(detail, now) {
   return age < 30 * 60 * 1000 || sinceEnd > 36 * HOUR;
 }
 
-async function readFinishedDetail({ client, meta, pairing, now, pgn: already = null }) {
+async function readFinishedDetail({ client, meta, pairing, now, pgn: already = null, knownResult = '*' }) {
   const pgn = already || parseGame((await client.text(roundPgnUrl(meta.id))).body);
-  return buildRoundDetail({ meta, status: 'FINISHED', pairing, pgn, fetchedAt: now });
+  return buildRoundDetail({ meta, status: 'FINISHED', pairing, pgn, knownResult, fetchedAt: now });
 }
 
 /**
@@ -384,9 +387,9 @@ export async function syncTournament({ client, cache: prevCache = emptyCache(), 
     const pairing = cache.pairings[focusMeta.id];
     if (focusStatus === 'FINISHED' && !detailIsFinal(details[focusMeta.id], now)) {
       try {
-        details[focusMeta.id] = await readFinishedDetail({ client, meta: focusMeta, pairing, now, pgn: justRead.get(focusMeta.id) });
+        details[focusMeta.id] = await readFinishedDetail({ client, meta: focusMeta, pairing, now, pgn: justRead.get(focusMeta.id), knownResult: cache.results[focusMeta.id] });
       } catch (err) {
-        if (!details[focusMeta.id]) details[focusMeta.id] = buildRoundDetail({ meta: focusMeta, status: 'FINISHED', pairing, fetchedAt: now });
+        if (!details[focusMeta.id]) details[focusMeta.id] = buildRoundDetail({ meta: focusMeta, status: 'FINISHED', pairing, knownResult: cache.results[focusMeta.id], fetchedAt: now });
       }
     } else if (focusStatus === 'UPCOMING') {
       details[focusMeta.id] = buildRoundDetail({ meta: focusMeta, status: 'UPCOMING', pairing, fetchedAt: now });
@@ -472,7 +475,7 @@ export async function fetchRoundDetail({ client, roundId, snapshot, cache, detai
   const next = { ...details };
   if (round.status === 'FINISHED') {
     if (!detailIsFinal(next[round.id], now)) {
-      next[round.id] = await readFinishedDetail({ client, meta, pairing, now });
+      next[round.id] = await readFinishedDetail({ client, meta, pairing, now, knownResult: round.result });
     }
   } else if (round.status === 'UPCOMING') {
     next[round.id] = buildRoundDetail({ meta, status: 'UPCOMING', pairing, fetchedAt: now });

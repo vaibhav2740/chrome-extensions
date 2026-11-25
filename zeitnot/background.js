@@ -6,13 +6,13 @@
 // was killed mid-sync.
 
 import { createLichessClient } from './shared/lichess.js';
-import { SNAPSHOT_VERSION, emptyCache, fetchRoundDetail, syncTournament } from './shared/tournament.js';
+import { emptyCache, fetchRoundDetail, syncTournament } from './shared/tournament.js';
 import { computeBadgeSpec } from './shared/badge.js';
 import { detectEvents } from './shared/notify.js';
 import { MIN_DELAY_MS, nextPollDelayMs } from './shared/schedule.js';
 import { SETTINGS_KEY, loadSettings } from './shared/settings.js';
 import {
-  CACHE_KEY, DEFAULT_META, DETAILS_KEY, META_KEY, MSG_ROUND, MSG_SYNC, SNAPSHOT_KEY,
+  CACHE_KEY, DEFAULT_META, DETAILS_KEY, META_KEY, MSG_ROUND, MSG_SYNC, SNAPSHOT_KEY, SNAPSHOT_VERSION,
 } from './shared/keys.js';
 
 const SYNC_ALARM = 'zeitnot:sync';
