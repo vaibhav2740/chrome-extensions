@@ -1,4 +1,4 @@
-// WCC 2026 Lichess Broadcast Client & PGN/JSON Parser
+// WCC 2026 Lichess Broadcast Client, Hardened PGN/JSON Parser & Clock Anchor
 import {
   calculateGameProbabilities,
   calculateMatchExpectancy,
@@ -12,16 +12,31 @@ export const ROUND_JSON_URL = (roundId) => `https://lichess.org/api/broadcast/-/
 export const CLOUD_EVAL_URL = (fen) =>
   `https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}`;
 
+const DEFAULT_TIMEOUT_MS = 8000;
+
+/**
+ * Parses H:MM:SS or M:SS into seconds, returning null on invalid formats.
+ */
+export function tryParseClockSeconds(str) {
+  if (typeof str !== 'string' && typeof str !== 'number') return null;
+  const trimmed = String(str).trim();
+  if (!/^\d{1,2}(:\d{1,2}){1,2}$/.test(trimmed)) return null;
+  const parts = trimmed.split(':').map((p) => parseInt(p, 10));
+  if (parts.some((p) => Number.isNaN(p) || p < 0)) return null;
+  if (parts.length === 3) {
+    if (parts[1] >= 60 || parts[2] >= 60) return null;
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  if (parts.length === 2) {
+    if (parts[1] >= 60) return null;
+    return parts[0] * 60 + parts[1];
+  }
+  return null;
+}
+
 export function parseClockSeconds(str) {
-  if (!str) return 7200;
-  const parts = String(str)
-    .trim()
-    .split(':')
-    .map((p) => parseInt(p, 10));
-  if (parts.some(Number.isNaN)) return 7200;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return 7200;
+  const parsed = tryParseClockSeconds(str);
+  return parsed !== null ? parsed : 7200;
 }
 
 export function formatClockSeconds(totalSec) {
@@ -45,19 +60,56 @@ export function formatCountdown(msRemaining) {
   return `${mins}m ${String(secs).padStart(2, '0')}s`;
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Strips nested parenthetical RAV variations (...) outside { ... } comments in O(n).
+ */
+export function stripPgnVariations(movetext) {
+  let out = '';
+  let parenDepth = 0;
+  let inBrace = false;
+
+  for (let i = 0; i < movetext.length; i++) {
+    const ch = movetext[i];
+    if (ch === '{' && parenDepth === 0) {
+      inBrace = true;
+      out += ch;
+    } else if (ch === '}' && parenDepth === 0) {
+      inBrace = false;
+      out += ch;
+    } else if (!inBrace && ch === '(') {
+      parenDepth++;
+    } else if (!inBrace && ch === ')') {
+      if (parenDepth > 0) parenDepth--;
+    } else if (parenDepth === 0) {
+      out += ch;
+    }
+  }
+  return out;
+}
+
 /**
  * Splits multi-game PGN text into individual game PGN strings.
  */
 export function splitPgnGames(pgnText) {
   if (!pgnText || !pgnText.trim()) return [];
-  // Split at [Event "..."] boundaries
   const chunks = pgnText.trim().split(/(?=\[Event\s+")/);
   return chunks.map((c) => c.trim()).filter(Boolean);
 }
 
 /**
- * Bulletproof single-game PGN parser.
- * Handles comments containing [%eval ...], [%clk ...], both, or neither, in any order.
+ * Hardened single-game PGN parser.
+ * Strips headers, variations (...), line comments (;...), and NAGs ($1),
+ * while preserving [%eval ...] and [%clk ...] inside { ... } in any order.
  */
 export function parseSingleGamePgn(pgn) {
   const getHeader = (name) => {
@@ -81,18 +133,21 @@ export function parseSingleGamePgn(pgn) {
       : 'Classical';
   const gameUrl = getHeader('GameURL') || getHeader('BroadcastURL') || '';
 
-  // Strip only header tag lines at start of lines so [%eval]/[%clk] inside { ... } remain intact
-  const moveSection = pgn
+  // Strip only header tag lines, end-of-line ; comments, RAV variations, and $NAGs
+  const rawMoves = pgn
     .replace(/^\s*\[[^\n]*\]\s*$/gm, ' ')
+    .replace(/;[^\n]*/g, ' ');
+  const moveSection = stripPgnVariations(rawMoves)
+    .replace(/\$\d+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Match move number prefixes, SAN tokens, and optional { ... } comments sequentially
   const moveRegex = /(?:(\d+\.{1,3})\s*)?([^\s{}]+)\s*(?:\{([^}]*)\})?/g;
   const moves = [];
   let currentMoveNum = 1;
   let nextIsBlack = false;
   let match;
+
   while ((match = moveRegex.exec(moveSection)) !== null) {
     const numDots = match[1] || '';
     const san = match[2];
@@ -116,7 +171,7 @@ export function parseSingleGamePgn(pgn) {
       const rawEval = evalMatch[1].trim();
       if (rawEval.startsWith('#')) {
         mateIn = parseInt(rawEval.slice(1), 10);
-        evalPawns = mateIn > 0 ? 15 : -15;
+        evalPawns = mateIn > 0 ? 12 : -12;
       } else {
         const parsed = parseFloat(rawEval);
         if (!Number.isNaN(parsed)) evalPawns = parsed;
@@ -189,13 +244,84 @@ export function parseSingleGamePgn(pgn) {
 }
 
 /**
+ * Reconciles fresh Lichess snapshot against an existing live clock anchor
+ * so 15s background polling does not clobber local second-by-second countdowns
+ * or explicit user stream calibrations on the same ply.
+ */
+export function resolveAnchoredSnapshot(freshSnapshot, prevAnchor, now = Date.now()) {
+  const ar = freshSnapshot.activeRound;
+  if (ar.status !== 'LIVE') {
+    return { snapshot: freshSnapshot, anchor: null };
+  }
+
+  const samePly =
+    prevAnchor &&
+    prevAnchor.roundId === ar.id &&
+    prevAnchor.plyCount === ar.plyCount;
+
+  if (!samePly) {
+    const anchor = {
+      roundId: ar.id,
+      plyCount: ar.plyCount,
+      whiteBaseSec: ar.white.timeSec,
+      blackBaseSec: ar.black.timeSec,
+      anchoredAt: now,
+      isUserCalibrated: false,
+    };
+    return { snapshot: freshSnapshot, anchor };
+  }
+
+  // Same ply while live: compute elapsed time from previous anchor
+  const elapsedSec = Math.max(0, Math.floor((now - prevAnchor.anchoredAt) / 1000));
+  const anchoredWhiteSec = ar.isWhiteTurn
+    ? Math.max(0, prevAnchor.whiteBaseSec - elapsedSec)
+    : prevAnchor.whiteBaseSec;
+  const anchoredBlackSec = !ar.isWhiteTurn
+    ? Math.max(0, prevAnchor.blackBaseSec - elapsedSec)
+    : prevAnchor.blackBaseSec;
+
+  // Prefer explicit user stream calibration, or whichever live clock is more up to date
+  const finalWhiteSec = prevAnchor.isUserCalibrated
+    ? anchoredWhiteSec
+    : Math.min(ar.white.timeSec, anchoredWhiteSec);
+  const finalBlackSec = prevAnchor.isUserCalibrated
+    ? anchoredBlackSec
+    : Math.min(ar.black.timeSec, anchoredBlackSec);
+
+  ar.white.timeSec = finalWhiteSec;
+  ar.white.timeStr = formatClockSeconds(finalWhiteSec);
+  ar.black.timeSec = finalBlackSec;
+  ar.black.timeStr = formatClockSeconds(finalBlackSec);
+
+  // Recompute probabilities cleanly with anchored clocks
+  const wProfile = identifyPlayer(ar.white.fullName, 'white');
+  const bProfile = identifyPlayer(ar.black.fullName, 'black');
+  ar.gameProbs = calculateGameProbabilities({
+    evalPawns: ar.evalPawns,
+    mateIn: ar.mateIn,
+    whiteTimeSec: finalWhiteSec,
+    blackTimeSec: finalBlackSec,
+    moveNumber: ar.moveNumber,
+    plyCount: ar.plyCount,
+    whiteElo: ar.white.elo,
+    blackElo: ar.black.elo,
+    whiteFormBonus: wProfile.formBonus,
+    blackFormBonus: bProfile.formBonus,
+    opening: ar.opening,
+    result: ar.result,
+  });
+
+  return { snapshot: freshSnapshot, anchor: prevAnchor };
+}
+
+/**
  * Fetches complete WCC 2026 championship state from Lichess Broadcast API.
- * Optionally accepts preferredRoundId ('auto' picks ongoing, else last finished / next upcoming).
+ * Auto-selects: live round -> imminent/default upcoming round -> last finished round.
  */
 export async function fetchWccSnapshot(preferredRoundId = null) {
   const [tourRes, pgnRes] = await Promise.all([
-    fetch(TOUR_API_URL, { cache: 'no-store' }),
-    fetch(TOUR_PGN_URL, { cache: 'no-store' }),
+    fetchWithTimeout(TOUR_API_URL, { cache: 'no-store' }),
+    fetchWithTimeout(TOUR_PGN_URL, { cache: 'no-store' }),
   ]);
 
   if (!tourRes.ok) throw new Error(`Tour API HTTP ${tourRes.status}`);
@@ -205,76 +331,104 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
   const fullPgn = await pgnRes.text();
 
   const rounds = tourJson.rounds || [];
+  if (rounds.length === 0) {
+    throw new Error('No broadcast rounds found');
+  }
+
   const pgnGames = splitPgnGames(fullPgn).map(parseSingleGamePgn);
   const pgnByRoundNum = new Map(pgnGames.map((g) => [g.roundNumber, g]));
 
-  // Compute authoritative match score from all finished games
   let sindarovScore = 0;
   let gukeshScore = 0;
   let completedGames = 0;
   const sindarovWhiteMap = new Map();
+  const unplayedRoundNumbers = [];
+  const roundsSummary = [];
 
   for (let idx = 0; idx < rounds.length; idx++) {
     const rNum = idx + 1;
-    const pgnGame = pgnByRoundNum.get(rNum);
     const rMeta = rounds[idx];
+    const pgnGame = pgnByRoundNum.get(rNum);
 
     if (pgnGame) {
       const wProfile = identifyPlayer(pgnGame.white, 'white');
       sindarovWhiteMap.set(rNum, wProfile.key === 'sindarov');
+    } else {
+      sindarovWhiteMap.set(rNum, rNum % 2 === 1);
+    }
 
-      if (pgnGame.result === '1-0' || pgnGame.result === '0-1' || pgnGame.result === '1/2-1/2') {
-        completedGames++;
-        if (pgnGame.result === '1/2-1/2') {
-          sindarovScore += 0.5;
-          gukeshScore += 0.5;
-        } else if (
-          (pgnGame.result === '1-0' && wProfile.key === 'sindarov') ||
-          (pgnGame.result === '0-1' && wProfile.key === 'gukesh')
-        ) {
+    const result = pgnGame?.result || '*';
+    const isFinished = Boolean(rMeta.finished) || result !== '*';
+    const isLive = Boolean(rMeta.ongoing) && !isFinished;
+
+    if (isFinished) {
+      completedGames++;
+      if (result === '1/2-1/2') {
+        sindarovScore += 0.5;
+        gukeshScore += 0.5;
+      } else if (result === '1-0' || result === '0-1') {
+        const sIsWhite = sindarovWhiteMap.get(rNum);
+        if ((result === '1-0' && sIsWhite) || (result === '0-1' && !sIsWhite)) {
           sindarovScore += 1;
         } else {
           gukeshScore += 1;
         }
       }
-    } else if (rMeta.finished) {
-      completedGames++;
+    } else {
+      unplayedRoundNumbers.push(rNum);
     }
+
+    roundsSummary.push({
+      id: rMeta.id,
+      name: rMeta.name || `Game ${rNum}`,
+      roundNumber: rNum,
+      status: isLive ? 'LIVE' : isFinished ? 'FINISHED' : 'UPCOMING',
+      result,
+      startsAt: rMeta.startsAt || null,
+      url: rMeta.url,
+    });
   }
 
-  // Determine live, last finished, and next upcoming rounds
-  const liveRoundIdx = rounds.findIndex((r) => r.ongoing);
+  const liveRoundIdx = roundsSummary.findIndex((r) => r.status === 'LIVE');
   let lastFinishedIdx = -1;
-  for (let i = rounds.length - 1; i >= 0; i--) {
-    const pgnG = pgnByRoundNum.get(i + 1);
-    if (rounds[i].finished || (pgnG && pgnG.result !== '*')) {
+  for (let i = roundsSummary.length - 1; i >= 0; i--) {
+    if (roundsSummary[i].status === 'FINISHED') {
       lastFinishedIdx = i;
       break;
     }
   }
-  const nextUpcomingIdx = rounds.findIndex(
-    (r, idx) => !r.ongoing && !r.finished && idx > lastFinishedIdx
+  const nextUpcomingIdx = roundsSummary.findIndex(
+    (r, idx) => r.status === 'UPCOMING' && idx > lastFinishedIdx
   );
 
-  // Pick which round to display in detail
   let selectedIdx = -1;
   if (preferredRoundId) {
     selectedIdx = rounds.findIndex((r) => r.id === preferredRoundId);
   }
   if (selectedIdx === -1) {
-    if (liveRoundIdx !== -1) selectedIdx = liveRoundIdx;
-    else if (lastFinishedIdx !== -1) selectedIdx = lastFinishedIdx;
-    else selectedIdx = 0;
+    if (liveRoundIdx !== -1) {
+      selectedIdx = liveRoundIdx;
+    } else if (nextUpcomingIdx !== -1) {
+      const nextR = roundsSummary[nextUpcomingIdx];
+      const msUntilNext = (nextR.startsAt || Infinity) - Date.now();
+      const isDefaultOrImminent =
+        tourJson.defaultRoundId === nextR.id || msUntilNext <= 3 * 3600 * 1000;
+      selectedIdx = isDefaultOrImminent || lastFinishedIdx === -1 ? nextUpcomingIdx : lastFinishedIdx;
+    } else if (lastFinishedIdx !== -1) {
+      selectedIdx = lastFinishedIdx;
+    } else {
+      selectedIdx = 0;
+    }
   }
 
   const selectedRoundMeta = rounds[selectedIdx];
+  const selectedSummary = roundsSummary[selectedIdx];
   const selectedRoundNum = selectedIdx + 1;
   const selectedPgn = pgnByRoundNum.get(selectedRoundNum);
 
-  // Fetch authoritative round JSON for exact clocks, fen, thinkTime, status
   let roundJson = null;
   try {
-    const rRes = await fetch(ROUND_JSON_URL(selectedRoundMeta.id), { cache: 'no-store' });
+    const rRes = await fetchWithTimeout(ROUND_JSON_URL(selectedRoundMeta.id), { cache: 'no-store' });
     if (rRes.ok) roundJson = await rRes.json();
   } catch (err) {
     console.warn('[WCC] Round JSON fetch failed, falling back to PGN:', err);
@@ -284,14 +438,19 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
   const apiWhite = apiGame?.players?.[0];
   const apiBlack = apiGame?.players?.[1];
 
-  const whiteName = apiWhite?.name || selectedPgn?.white || (selectedRoundNum % 2 === 1 ? 'Sindarov, Javokhir' : 'Gukesh D');
-  const blackName = apiBlack?.name || selectedPgn?.black || (selectedRoundNum % 2 === 1 ? 'Gukesh D' : 'Sindarov, Javokhir');
+  const whiteName =
+    apiWhite?.name ||
+    selectedPgn?.white ||
+    (sindarovWhiteMap.get(selectedRoundNum) ? 'Sindarov, Javokhir' : 'Gukesh D');
+  const blackName =
+    apiBlack?.name ||
+    selectedPgn?.black ||
+    (sindarovWhiteMap.get(selectedRoundNum) ? 'Gukesh D' : 'Sindarov, Javokhir');
   const wProfile = identifyPlayer(whiteName, 'white');
   const bProfile = identifyPlayer(blackName, 'black');
   const whiteElo = apiWhite?.rating || selectedPgn?.whiteElo || wProfile.elo;
   const blackElo = apiBlack?.rating || selectedPgn?.blackElo || bProfile.elo;
 
-  // Determine exact state of selected round
   const pgnResult = selectedPgn?.result || '*';
   const apiStatus = apiGame?.status || '*';
   const normalizedResult =
@@ -303,14 +462,9 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
           ? apiStatus
           : '*';
 
-  let status = 'UPCOMING';
-  if (selectedRoundMeta.ongoing && normalizedResult === '*') {
-    status = 'LIVE';
-  } else if (selectedRoundMeta.finished || normalizedResult !== '*') {
-    status = 'FINISHED';
-  }
+  let status = selectedSummary.status;
+  if (normalizedResult !== '*') status = 'FINISHED';
 
-  // Clocks: Lichess round JSON returns clock in centiseconds!
   let whiteTimeSec =
     typeof apiWhite?.clock === 'number'
       ? Math.round(apiWhite.clock / 100)
@@ -320,7 +474,6 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
       ? Math.round(apiBlack.clock / 100)
       : selectedPgn?.blackTimeSec ?? 7200;
 
-  // Determine turn from FEN (most authoritative) or PGN
   let isWhiteTurn = selectedPgn?.isWhiteTurn ?? true;
   let moveNumber = selectedPgn?.moveNumber ?? 1;
   if (apiGame?.fen) {
@@ -334,40 +487,37 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
     }
   }
 
-  // If live and Lichess provides thinkTime (in centiseconds), subtract from active player
   if (status === 'LIVE' && typeof apiGame?.thinkTime === 'number' && apiGame.thinkTime > 0) {
     const thinkSec = Math.floor(apiGame.thinkTime / 100);
     if (isWhiteTurn) whiteTimeSec = Math.max(0, whiteTimeSec - thinkSec);
     else blackTimeSec = Math.max(0, blackTimeSec - thinkSec);
   }
 
-  // Evaluation: prefer PGN [%eval], else query Lichess cloud-eval when LIVE or FEN available
   let evalPawns = selectedPgn?.evalPawns ?? null;
   let mateIn = selectedPgn?.mateIn ?? null;
 
   if (evalPawns === null && apiGame?.fen && (selectedPgn?.plyCount || 0) > 0) {
     try {
-      const evalRes = await fetch(CLOUD_EVAL_URL(apiGame.fen), { cache: 'no-store' });
+      const evalRes = await fetchWithTimeout(CLOUD_EVAL_URL(apiGame.fen), { cache: 'no-store' }, 4000);
       if (evalRes.ok) {
         const evalData = await evalRes.json();
         const topPv = evalData?.pvs?.[0];
         if (topPv) {
           if (typeof topPv.mate === 'number') {
             mateIn = topPv.mate;
-            evalPawns = mateIn > 0 ? 15 : -15;
+            evalPawns = mateIn > 0 ? 12 : -12;
           } else if (typeof topPv.cp === 'number') {
             evalPawns = topPv.cp / 100.0;
           }
         }
       }
     } catch {
-      // Cloud eval optional; fallback below
+      // Cloud eval optional
     }
   }
 
   if (evalPawns === null) evalPawns = 0.0;
 
-  // Compute selected round probabilities
   const gameProbs = calculateGameProbabilities({
     evalPawns,
     mateIn,
@@ -383,20 +533,20 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
     result: normalizedResult,
   });
 
-  // Compute Championship Match Expectancy using DP over all 14 games
   const liveRoundNumber = liveRoundIdx !== -1 ? liveRoundIdx + 1 : null;
   const matchExpectancy = calculateMatchExpectancy({
     sindarovScore,
     gukeshScore,
     completedGames,
+    unplayedRoundNumbers,
     liveRoundNumber,
     liveGameProbs: status === 'LIVE' && selectedRoundNum === liveRoundNumber ? gameProbs : null,
     sindarovWhiteInRound: (r) =>
       sindarovWhiteMap.has(r) ? sindarovWhiteMap.get(r) : r % 2 === 1,
   });
 
-  const nextRoundMeta = nextUpcomingIdx !== -1 ? rounds[nextUpcomingIdx] : null;
-  const lastFinishedMeta = lastFinishedIdx !== -1 ? rounds[lastFinishedIdx] : null;
+  const nextRoundMeta = nextUpcomingIdx !== -1 ? roundsSummary[nextUpcomingIdx] : null;
+  const lastFinishedMeta = lastFinishedIdx !== -1 ? roundsSummary[lastFinishedIdx] : null;
 
   return {
     fetchedAt: Date.now(),
@@ -409,29 +559,14 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
     },
     matchExpectancy,
     isAnyGameLive: liveRoundIdx !== -1,
-    nextRound: nextRoundMeta
-      ? {
-          id: nextRoundMeta.id,
-          name: nextRoundMeta.name,
-          roundNumber: nextUpcomingIdx + 1,
-          startsAt: nextRoundMeta.startsAt,
-          url: nextRoundMeta.url,
-        }
-      : null,
-    lastFinishedRound: lastFinishedMeta
-      ? {
-          id: lastFinishedMeta.id,
-          name: lastFinishedMeta.name,
-          roundNumber: lastFinishedIdx + 1,
-          result: pgnByRoundNum.get(lastFinishedIdx + 1)?.result || '1/2-1/2',
-          url: lastFinishedMeta.url,
-        }
-      : null,
+    rounds: roundsSummary,
+    nextRound: nextRoundMeta,
+    lastFinishedRound: lastFinishedMeta,
     activeRound: {
       id: selectedRoundMeta.id,
-      name: selectedRoundMeta.name,
+      name: selectedRoundMeta.name || `Game ${selectedRoundNum}`,
       roundNumber: selectedRoundNum,
-      status, // 'LIVE' | 'FINISHED' | 'UPCOMING'
+      status,
       result: normalizedResult,
       startsAt: selectedRoundMeta.startsAt,
       finishedAt: selectedRoundMeta.finishedAt || null,
@@ -457,7 +592,7 @@ export async function fetchWccSnapshot(preferredRoundId = null) {
       completedMoves: selectedPgn?.completedMoves || 0,
       plyCount: selectedPgn?.plyCount || 0,
       isWhiteTurn,
-      lastMove: selectedPgn?.lastMove || (status === 'UPCOMING' ? 'Starts soon' : '—'),
+      lastMove: selectedPgn?.lastMove || (status === 'UPCOMING' ? 'Not started' : '—'),
       evalPawns,
       mateIn,
       gameProbs,
