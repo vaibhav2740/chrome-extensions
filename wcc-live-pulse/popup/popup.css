@@ -86,6 +86,13 @@ body {
   overflow-x: hidden;
 }
 
+button:focus-visible,
+a:focus-visible,
+.toggle-wrap:has(input:focus-visible) .switch-pill {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
 .ambient {
   position: fixed;
   inset: 0;
@@ -288,10 +295,11 @@ body {
 .status-pill.is-upcoming .pulse-label,
 .status-pill.is-break .pulse-label { color: var(--cyan); }
 
-/* ---------- iOS Segmented Round Switcher ---------- */
+/* ---------- iOS Segmented Round Navigator ---------- */
 .seg-track {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 24px 1fr 1fr 24px;
+  align-items: center;
   gap: 3px;
   padding: 3px;
   border-radius: 999px;
@@ -304,14 +312,42 @@ body {
   display: none;
 }
 
+.seg-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, transform 0.12s ease;
+}
+
+.seg-nav:hover:not(:disabled) {
+  background: var(--pill-bg);
+  color: var(--text-main);
+}
+
+.seg-nav:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.seg-nav:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
 .seg-btn {
   border: none;
   background: transparent;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  padding: 5px 10px;
+  padding: 5px 8px;
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
@@ -320,12 +356,17 @@ body {
   text-overflow: ellipsis;
 }
 
-.seg-btn:hover {
+.seg-btn:hover:not(:disabled) {
   color: var(--text-main);
 }
 
-.seg-btn:active {
+.seg-btn:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+.seg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .seg-btn.is-active {
@@ -355,6 +396,7 @@ body {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .glass-chip {
@@ -366,6 +408,9 @@ body {
   border-radius: 999px;
   border: 1px solid var(--glass-border);
   white-space: nowrap;
+  max-width: 168px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Specular Fluid Probability Bar */
@@ -572,11 +617,11 @@ body {
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
-  padding: 1px 3px;
-  margin: 0 -3px;
+  padding: 1px 4px;
+  margin: 0 -4px;
   border-radius: 8px;
   border-bottom: 1px dashed transparent;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.25s ease, color 0.2s ease;
 }
 
 .clock-val.is-editable {
@@ -592,6 +637,20 @@ body {
   outline: none;
   background: rgba(56, 189, 248, 0.14);
   border-bottom-color: var(--cyan);
+}
+
+.clock-val.is-zeitnot {
+  color: var(--amber);
+}
+
+.clock-val.is-calibrated {
+  box-shadow: 0 0 0 2px rgba(127, 240, 164, 0.55);
+  background: rgba(127, 240, 164, 0.12);
+}
+
+.clock-val.is-invalid {
+  box-shadow: 0 0 0 2px rgba(255, 69, 58, 0.65);
+  background: rgba(255, 69, 58, 0.12);
 }
 
 .pace-tag {

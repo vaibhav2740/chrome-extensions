@@ -3,7 +3,8 @@ import {
   fetchWccSnapshot,
   formatClockSeconds,
   formatCountdown,
-  parseClockSeconds,
+  resolveAnchoredSnapshot,
+  tryParseClockSeconds,
 } from '../shared/wcc_data.js';
 import {
   calculateGameProbabilities,
@@ -11,14 +12,17 @@ import {
 } from '../shared/probability_engine.js';
 
 const STORAGE_KEY = 'wccPulseStateV2';
+const ANCHOR_KEY = 'wccClockAnchorV2';
 
 const el = {
   matchScoreSub: document.getElementById('matchScoreSub'),
   statusPill: document.getElementById('statusPill'),
   pulseText: document.getElementById('pulseText'),
   roundSwitcher: document.getElementById('roundSwitcher'),
+  prevRoundBtn: document.getElementById('prevRoundBtn'),
   tabLastRound: document.getElementById('tabLastRound'),
   tabNextRound: document.getElementById('tabNextRound'),
+  nextRoundBtn: document.getElementById('nextRoundBtn'),
   heroTitle: document.getElementById('heroTitle'),
   openingBadge: document.getElementById('openingBadge'),
   segWhite: document.getElementById('segWhite'),
@@ -67,14 +71,16 @@ let autoSyncTimer = null;
 let tickTimer = null;
 let isSyncing = false;
 let isEditingClock = false;
+let lastStartRefreshAt = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 
   try {
-    const cached = await chrome.storage.local.get([STORAGE_KEY]);
+    const cached = await chrome.storage.local.get([STORAGE_KEY, ANCHOR_KEY]);
     if (cached[STORAGE_KEY]) {
-      snapshot = cached[STORAGE_KEY];
+      const reconciled = resolveAnchoredSnapshot(cached[STORAGE_KEY], cached[ANCHOR_KEY] || null);
+      snapshot = reconciled.snapshot;
       renderSnapshot(snapshot, true);
     }
   } catch (err) {
@@ -91,19 +97,42 @@ function setupEventListeners() {
   el.autoSyncCheck.addEventListener('change', setupAutoSync);
 
   el.tabLastRound.addEventListener('click', async () => {
-    if (!snapshot?.lastFinishedRound) return;
-    selectedRoundId = snapshot.lastFinishedRound.id;
+    const target = snapshot?.lastFinishedRound || snapshot?.rounds?.[0];
+    if (!target) return;
+    selectedRoundId = target.id;
     await syncNow(false);
   });
 
   el.tabNextRound.addEventListener('click', async () => {
-    if (!snapshot?.nextRound) return;
-    selectedRoundId = snapshot.nextRound.id;
+    const live = snapshot?.rounds?.find((r) => r.status === 'LIVE');
+    const target = live || snapshot?.nextRound;
+    if (!target) return;
+    selectedRoundId = target.id;
     await syncNow(false);
   });
 
+  el.prevRoundBtn.addEventListener('click', async () => stepRound(-1));
+  el.nextRoundBtn.addEventListener('click', async () => stepRound(1));
+
   setupEditableClock(el.whiteClock, 'white');
   setupEditableClock(el.blackClock, 'black');
+}
+
+async function stepRound(delta) {
+  const rounds = snapshot?.rounds || [];
+  if (rounds.length === 0) return;
+  const idx = rounds.findIndex((r) => r.id === snapshot.activeRound.id);
+  const nextIdx = Math.max(0, Math.min(rounds.length - 1, (idx === -1 ? 0 : idx) + delta));
+  if (nextIdx === idx) return;
+  selectedRoundId = rounds[nextIdx].id;
+  await syncNow(false);
+}
+
+function flashClockState(clockEl, className) {
+  clockEl.classList.remove('is-calibrated', 'is-invalid');
+  void clockEl.offsetWidth; // trigger reflow for repeated feedback
+  clockEl.classList.add(className);
+  setTimeout(() => clockEl.classList.remove(className), 750);
 }
 
 function setupEditableClock(clockEl, color) {
@@ -115,30 +144,56 @@ function setupEditableClock(clockEl, color) {
     isEditingClock = true;
   });
 
-  clockEl.addEventListener('blur', () => {
+  clockEl.addEventListener('blur', async () => {
     if (!isEditingClock) return;
     isEditingClock = false;
     if (snapshot?.activeRound?.status !== 'LIVE') return;
 
-    const sec = parseClockSeconds(clockEl.textContent.trim());
-    if (sec >= 0) {
-      const ar = snapshot.activeRound;
-      if (color === 'white') {
-        ar.white.timeSec = sec;
-        ar.white.timeStr = formatClockSeconds(sec);
-      } else {
-        ar.black.timeSec = sec;
-        ar.black.timeStr = formatClockSeconds(sec);
-      }
-      recomputeLiveRoundProbs();
-      renderSnapshot(snapshot, true);
-      el.statusBar.textContent = `Stream calibrated · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const ar = snapshot.activeRound;
+    const sec = tryParseClockSeconds(clockEl.textContent);
+    if (sec === null) {
+      clockEl.textContent = color === 'white' ? ar.white.timeStr : ar.black.timeStr;
+      flashClockState(clockEl, 'is-invalid');
+      return;
     }
+
+    if (color === 'white') {
+      ar.white.timeSec = sec;
+      ar.white.timeStr = formatClockSeconds(sec);
+    } else {
+      ar.black.timeSec = sec;
+      ar.black.timeStr = formatClockSeconds(sec);
+    }
+
+    const calibratedAnchor = {
+      roundId: ar.id,
+      plyCount: ar.plyCount,
+      whiteBaseSec: ar.white.timeSec,
+      blackBaseSec: ar.black.timeSec,
+      anchoredAt: Date.now(),
+      isUserCalibrated: true,
+    };
+
+    recomputeLiveRoundProbs();
+    await chrome.storage.local.set({
+      [STORAGE_KEY]: snapshot,
+      [ANCHOR_KEY]: calibratedAnchor,
+    });
+    chrome.runtime.sendMessage({ type: 'UPDATE_BADGE', snapshot }).catch(() => {});
+    renderSnapshot(snapshot, true);
+    flashClockState(clockEl, 'is-calibrated');
+    el.statusBar.textContent = `Calibrated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   });
 
   clockEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      clockEl.blur();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      isEditingClock = false;
+      const ar = snapshot?.activeRound;
+      if (ar) clockEl.textContent = color === 'white' ? ar.white.timeStr : ar.black.timeStr;
       clockEl.blur();
     }
   });
@@ -171,8 +226,13 @@ function startSecondTicker() {
       recomputeLiveRoundProbs();
       renderSnapshot(snapshot, false);
     } else if (snapshot.nextRound) {
-      // Update live countdown to next game cleanly (never touches player clocks!)
       renderCountdownOnly(snapshot);
+      const msLeft = snapshot.nextRound.startsAt - Date.now();
+      // Auto-refresh cleanly once round start wall-clock time arrives
+      if (msLeft <= 0 && Date.now() - lastStartRefreshAt > 15000) {
+        lastStartRefreshAt = Date.now();
+        syncNow(true);
+      }
     }
   }, 1000);
 }
@@ -209,13 +269,22 @@ async function syncNow(silent = false) {
 
   try {
     const fresh = await fetchWccSnapshot(selectedRoundId);
-    // If a game just went LIVE while user wasn't explicitly locked, jump to LIVE
     if (fresh.isAnyGameLive && !selectedRoundId) {
       selectedRoundId = fresh.activeRound.id;
     }
-    snapshot = fresh;
-    await chrome.storage.local.set({ [STORAGE_KEY]: fresh });
-    renderSnapshot(fresh, true);
+
+    const stored = await chrome.storage.local.get([ANCHOR_KEY]);
+    const prevAnchor = stored[ANCHOR_KEY] || null;
+    const { snapshot: anchored, anchor } = resolveAnchoredSnapshot(fresh, prevAnchor);
+
+    snapshot = anchored;
+    await chrome.storage.local.set({
+      [STORAGE_KEY]: anchored,
+      [ANCHOR_KEY]: anchor,
+    });
+    chrome.runtime.sendMessage({ type: 'UPDATE_BADGE', snapshot: anchored }).catch(() => {});
+
+    renderSnapshot(anchored, true);
     el.statusBar.textContent = `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   } catch (err) {
     console.warn('[WCC] Sync failed:', err);
@@ -228,10 +297,6 @@ async function syncNow(silent = false) {
       el.refreshLabel.textContent = 'Sync';
     }
   }
-}
-
-function formatScoreNum(n) {
-  return Number.isInteger(n) ? `${n}` : `${n}`;
 }
 
 function formatEval(evalPawns, mateIn) {
@@ -254,13 +319,15 @@ function renderCountdownOnly(data) {
   if (!data.isAnyGameLive && ar.status === 'FINISHED') {
     el.pulseText.textContent = `NEXT · ${cd}`;
     el.tcText.textContent = `${nr.name} starts in ${cd}`;
-  } else if (ar.status === 'UPCOMING') {
-    el.pulseText.textContent = `IN ${cd}`;
-    el.tcText.textContent = `Starts in ${cd} · ${formatStartTime(ar.startsAt)}`;
+  } else if (ar.status === 'UPCOMING' && ar.startsAt) {
+    const roundCd = formatCountdown(ar.startsAt - Date.now());
+    el.pulseText.textContent = `IN ${roundCd}`;
+    el.tcText.textContent = `Starts in ${roundCd} · ${formatStartTime(ar.startsAt)}`;
   }
 }
 
 function formatStartTime(ms) {
+  if (!ms) return 'Scheduled';
   const d = new Date(ms);
   const isToday = new Date().toDateString() === d.toDateString();
   const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -268,22 +335,40 @@ function formatStartTime(ms) {
 }
 
 function renderSnapshot(data, updateClocks = true) {
-  const { matchScore, matchExpectancy, activeRound: ar, nextRound, lastFinishedRound, isAnyGameLive } = data;
+  const { matchScore, matchExpectancy, activeRound: ar, nextRound, lastFinishedRound, rounds = [] } = data;
 
-  // Match score chip
-  el.matchScoreSub.textContent = `${formatScoreNum(matchScore.gukesh)} – ${formatScoreNum(matchScore.sindarov)}`;
-
-  // Link to exact Lichess board
+  el.matchScoreSub.textContent = `${matchScore.gukesh} – ${matchScore.sindarov}`;
   el.lichessLink.href = ar.url || data.tourUrl;
 
-  // Round switcher (cleanly between games when both last & next exist and no game is live)
-  if (!isAnyGameLive && lastFinishedRound && nextRound) {
+  // Segmented round navigator across all 14 games
+  if (rounds.length > 1) {
     el.roundSwitcher.hidden = false;
-    const resSymbol = lastFinishedRound.result === '1/2-1/2' ? '½–½' : lastFinishedRound.result;
-    el.tabLastRound.textContent = `${lastFinishedRound.name} · Final (${resSymbol})`;
-    el.tabNextRound.textContent = `Next: ${nextRound.name}`;
-    el.tabLastRound.classList.toggle('is-active', ar.id === lastFinishedRound.id);
-    el.tabNextRound.classList.toggle('is-active', ar.id === nextRound.id);
+    const curIdx = rounds.findIndex((r) => r.id === ar.id);
+    el.prevRoundBtn.disabled = curIdx <= 0;
+    el.nextRoundBtn.disabled = curIdx === -1 || curIdx >= rounds.length - 1;
+
+    const liveRound = rounds.find((r) => r.status === 'LIVE');
+    if (lastFinishedRound) {
+      const resSym = lastFinishedRound.result === '1/2-1/2' ? '½–½' : lastFinishedRound.result;
+      el.tabLastRound.textContent = `${lastFinishedRound.name} · ${resSym}`;
+      el.tabLastRound.disabled = false;
+      el.tabLastRound.classList.toggle('is-active', ar.id === lastFinishedRound.id);
+    } else {
+      el.tabLastRound.textContent = 'Game 1';
+      el.tabLastRound.disabled = false;
+      el.tabLastRound.classList.toggle('is-active', curIdx === 0);
+    }
+
+    const focusUpcoming = liveRound || nextRound;
+    if (focusUpcoming) {
+      el.tabNextRound.textContent = liveRound ? `Live: ${liveRound.name}` : `Next: ${focusUpcoming.name}`;
+      el.tabNextRound.disabled = false;
+      el.tabNextRound.classList.toggle('is-active', ar.id === focusUpcoming.id);
+    } else {
+      el.tabNextRound.textContent = 'Match Complete';
+      el.tabNextRound.disabled = true;
+      el.tabNextRound.classList.remove('is-active');
+    }
   } else {
     el.roundSwitcher.hidden = true;
   }
@@ -303,7 +388,7 @@ function renderSnapshot(data, updateClocks = true) {
     }
   } else {
     el.statusPill.classList.add('is-upcoming');
-    el.pulseText.textContent = `IN ${formatCountdown(ar.startsAt - Date.now())}`;
+    el.pulseText.textContent = `IN ${formatCountdown((ar.startsAt || 0) - Date.now())}`;
   }
 
   // Hero Card
@@ -313,10 +398,10 @@ function renderSnapshot(data, updateClocks = true) {
 
   if (ar.status === 'FINISHED') {
     const resLabel = ar.result === '1/2-1/2' ? 'Draw (½–½)' : ar.result === '1-0' ? `${ar.white.name} Won` : `${ar.black.name} Won`;
-    el.heroTitle.textContent = 'Championship Title Odds';
+    el.heroTitle.textContent = 'Championship Odds';
     el.openingBadge.textContent = `${ar.name}: ${resLabel}`;
+    el.openingBadge.title = `${ar.name}: ${resLabel}`;
 
-    // Bar shows Sindarov vs Gukesh overall title odds
     el.segWhite.style.width = `${sTitlePct}%`;
     el.segDraw.style.width = '0%';
     el.segBlack.style.width = `${gTitlePct}%`;
@@ -331,14 +416,14 @@ function renderSnapshot(data, updateClocks = true) {
     el.bannerLabel.textContent = `${ar.name} · ${ar.opening}`;
     el.bannerValue.textContent = `${matchExpectancy.remainingGames} games left`;
   } else {
-    // LIVE or UPCOMING game view
     const { gameProbs } = ar;
     const wPct = (gameProbs.whiteWin * 100).toFixed(1);
     const dPct = (gameProbs.draw * 100).toFixed(1);
     const bPct = (gameProbs.blackWin * 100).toFixed(1);
 
-    el.heroTitle.textContent = `${ar.name} Win Probability`;
+    el.heroTitle.textContent = `${ar.name} Win Odds`;
     el.openingBadge.textContent = ar.opening;
+    el.openingBadge.title = ar.opening;
 
     el.segWhite.style.width = `${wPct}%`;
     el.segDraw.style.width = `${dPct}%`;
@@ -366,17 +451,21 @@ function renderSnapshot(data, updateClocks = true) {
   el.blackClock.contentEditable = isEditable ? 'true' : 'false';
   el.whiteClock.classList.toggle('is-editable', isEditable);
   el.blackClock.classList.toggle('is-editable', isEditable);
+  el.whiteClock.title = isEditable ? 'Click to calibrate with live stream' : 'Game clock';
+  el.blackClock.title = isEditable ? 'Click to calibrate with live stream' : 'Game clock';
 
   if (updateClocks || !isEditingClock) {
     el.whiteClock.textContent = ar.white.timeStr;
     el.blackClock.textContent = ar.black.timeStr;
   }
 
-  // Turn Dot: strictly LIVE only!
   el.whiteTurnDot.classList.toggle('active', ar.status === 'LIVE' && ar.isWhiteTurn);
   el.blackTurnDot.classList.toggle('active', ar.status === 'LIVE' && !ar.isWhiteTurn);
 
   const { clocks } = ar.gameProbs;
+  el.whiteClock.classList.toggle('is-zeitnot', ar.status === 'LIVE' && clocks.stressW >= 0.45);
+  el.blackClock.classList.toggle('is-zeitnot', ar.status === 'LIVE' && clocks.stressB >= 0.45);
+
   el.centerTopLabel.textContent = ar.status === 'FINISHED' ? 'FINAL' : 'VS';
   el.deltaChip.textContent = clocks.deltaClockFormatted;
 
@@ -411,7 +500,7 @@ function renderSnapshot(data, updateClocks = true) {
       ? `${nextRound.name} starts in ${formatCountdown(nextRound.startsAt - Date.now())}`
       : `${ar.name} finished · ${ar.completedMoves} moves played`;
   } else {
-    el.tcText.textContent = `Starts in ${formatCountdown(ar.startsAt - Date.now())} · ${formatStartTime(ar.startsAt)}`;
+    el.tcText.textContent = `Starts in ${formatCountdown((ar.startsAt || 0) - Date.now())} · ${formatStartTime(ar.startsAt)}`;
   }
 
   // Telemetry Card
@@ -423,7 +512,7 @@ function renderSnapshot(data, updateClocks = true) {
     el.evLbl2.textContent = 'Result';
     el.evVal2.textContent = ar.result === '1/2-1/2' ? '½–½' : ar.result;
     el.evLbl3.textContent = 'Match Score';
-    el.evVal3.textContent = `${formatScoreNum(matchScore.gukesh)}–${formatScoreNum(matchScore.sindarov)}`;
+    el.evVal3.textContent = `${matchScore.gukesh}–${matchScore.sindarov}`;
   } else if (ar.status === 'UPCOMING') {
     el.movePill.textContent = `${ar.name} · ${formatStartTime(ar.startsAt)}`;
     el.lastMove.textContent = `${ar.white.name} (W)`;
