@@ -3,76 +3,90 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
   <title>WCC 2026 Live Pulse</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="shell">
+  <div class="ambient" aria-hidden="true"></div>
 
-    <!-- Top Bar -->
+  <main class="shell">
+
+    <!-- Top Header -->
     <header class="top-bar">
       <div class="brand">
-        <img class="brand-icon" src="../icons/icon-48.png" alt="" width="30" height="30">
+        <div class="brand-icon-wrap">
+          <img class="brand-icon" src="../icons/icon-48.png" alt="" width="28" height="28">
+        </div>
         <div class="brand-text">
-          <span class="brand-title">WCC Pulse</span>
-          <span class="brand-sub" id="matchScoreSub">Score: Gukesh 0.5 – 0.5 Sindarov</span>
+          <div class="brand-title-row">
+            <span class="brand-title">WCC Pulse</span>
+            <span class="score-chip" id="matchScoreSub">0.5 – 0.5</span>
+          </div>
+          <span class="brand-sub">Gukesh vs Sindarov · Geneva</span>
         </div>
       </div>
+
       <div class="status-pill is-break" id="statusPill">
         <span class="pulse-ring"></span>
         <span class="pulse-dot"></span>
-        <span class="pulse-label" id="pulseText">LOADING</span>
+        <span class="pulse-label" id="pulseText">SYNCING</span>
       </div>
     </header>
 
-    <!-- Round Switcher (Shown cleanly between rounds) -->
-    <nav class="round-switcher" id="roundSwitcher" hidden aria-label="Round view">
-      <button type="button" class="round-tab is-active" id="tabLastRound">Last: Game 1 (½–½)</button>
-      <button type="button" class="round-tab" id="tabNextRound">Next: Game 2</button>
+    <!-- iOS-Style Segmented Round Switcher (Shown between rounds) -->
+    <nav class="seg-track" id="roundSwitcher" hidden aria-label="Round view">
+      <button type="button" class="seg-btn is-active" id="tabLastRound">Game 1 · ½–½</button>
+      <button type="button" class="seg-btn" id="tabNextRound">Next: Game 2</button>
     </nav>
 
-    <!-- Hero Probability Card -->
+    <!-- Hero Probability Glass Card -->
     <section class="glass-card hero-card" aria-label="Win Probability">
       <div class="card-meta">
         <span class="section-tag" id="heroTitle">Championship Odds</span>
-        <span class="badge-pill" id="openingBadge">Berlin Defense</span>
+        <span class="glass-chip" id="openingBadge">Berlin Defense</span>
       </div>
 
+      <!-- Fluid Specular Probability Bar -->
       <div class="bar-shell">
         <div class="bar-seg seg-w" id="segWhite" style="width: 50%;"></div>
         <div class="bar-seg seg-d" id="segDraw" style="width: 0%;"></div>
         <div class="bar-seg seg-b" id="segBlack" style="width: 50%;"></div>
       </div>
 
-      <div class="prob-row">
-        <div class="prob-chip chip-w">
-          <span class="p-sub" id="lblProb1">Sindarov</span>
-          <span class="p-num" id="valProb1">—</span>
+      <!-- Clean Open Metrics (No Cluttered Inner Boxes) -->
+      <div class="prob-metrics">
+        <div class="metric metric-w">
+          <span class="metric-label" id="lblProb1">Sindarov</span>
+          <span class="metric-val" id="valProb1">—</span>
         </div>
-        <div class="prob-chip chip-d">
-          <span class="p-sub" id="lblProb2">Tiebreak</span>
-          <span class="p-num" id="valProb2">—</span>
+        <div class="metric-sep" aria-hidden="true"></div>
+        <div class="metric metric-d">
+          <span class="metric-label" id="lblProb2">Tiebreak</span>
+          <span class="metric-val" id="valProb2">—</span>
         </div>
-        <div class="prob-chip chip-b">
-          <span class="p-sub" id="lblProb3">Gukesh</span>
-          <span class="p-num" id="valProb3">—</span>
+        <div class="metric-sep" aria-hidden="true"></div>
+        <div class="metric metric-b">
+          <span class="metric-label" id="lblProb3">Gukesh</span>
+          <span class="metric-val" id="valProb3">—</span>
         </div>
       </div>
 
-      <div class="title-expectancy">
-        <span class="te-label" id="bannerLabel">14-Game Title Odds</span>
-        <span class="te-value" id="bannerValue">—</span>
+      <div class="expectancy-pill">
+        <span class="exp-label" id="bannerLabel">14-Game Title Odds</span>
+        <span class="exp-val" id="bannerValue">—</span>
       </div>
     </section>
 
-    <!-- Clocks & Matchup Card -->
+    <!-- Clocks & Matchup Glass Card -->
     <section class="glass-card clock-card" aria-label="Player Clocks">
       <div class="players-grid">
         <div class="player-panel white-side">
           <div class="p-header">
             <span class="turn-dot" id="whiteTurnDot" title="Thinking…"></span>
+            <span class="piece-swatch is-white" aria-hidden="true"></span>
             <span class="p-name" id="whiteName">Sindarov</span>
-            <span class="elo-pill" id="whiteElo">2782</span>
+            <span class="elo-tag" id="whiteElo">2782</span>
           </div>
           <div class="clock-val" id="whiteClock" spellcheck="false">—</div>
           <div class="pace-tag" id="whitePace">—</div>
@@ -85,8 +99,9 @@
 
         <div class="player-panel black-side">
           <div class="p-header">
-            <span class="elo-pill" id="blackElo">2710</span>
+            <span class="elo-tag" id="blackElo">2710</span>
             <span class="p-name" id="blackName">Gukesh</span>
+            <span class="piece-swatch is-black" aria-hidden="true"></span>
             <span class="turn-dot" id="blackTurnDot" title="Thinking…"></span>
           </div>
           <div class="clock-val" id="blackClock" spellcheck="false">—</div>
@@ -94,47 +109,49 @@
         </div>
       </div>
 
-      <div class="increment-strip" id="tcAlert">
-        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="8" cy="8" r="7"/>
-          <polyline points="8 4 8 8 10.5 9.5"/>
+      <div class="capsule-strip" id="tcAlert">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5"/>
+          <polyline points="8 4.3 8 8 10.4 9.4"/>
         </svg>
         <span id="tcText">Syncing schedule…</span>
       </div>
     </section>
 
-    <!-- Telemetry & Position Bar -->
-    <section class="glass-card tele-card">
+    <!-- Minimal Telemetry Glass Strip -->
+    <section class="glass-card tele-card" aria-label="Position Telemetry">
       <div class="tele-top">
-        <span class="tele-pill" id="movePill">—</span>
+        <span class="tele-status" id="movePill">—</span>
         <span class="tele-move" id="lastMove">—</span>
       </div>
 
-      <div class="eval-grid">
-        <div class="eval-box">
+      <div class="eval-strip">
+        <div class="eval-stat">
           <span class="ev-lbl" id="evLbl1">Engine Eval</span>
           <span class="ev-val" id="evVal1">—</span>
         </div>
-        <div class="eval-box">
+        <div class="eval-div" aria-hidden="true"></div>
+        <div class="eval-stat">
           <span class="ev-lbl" id="evLbl2">Time Hazard</span>
           <span class="ev-val" id="evVal2">—</span>
         </div>
-        <div class="eval-box hero-eval">
+        <div class="eval-div" aria-hidden="true"></div>
+        <div class="eval-stat is-accent">
           <span class="ev-lbl" id="evLbl3">Effective</span>
           <span class="ev-val" id="evVal3">—</span>
         </div>
       </div>
     </section>
 
-    <!-- Bottom Bar -->
+    <!-- Bottom Controls -->
     <footer class="bottom-bar">
       <div class="actions-left">
-        <button id="refreshBtn" class="glass-btn" title="Sync latest Lichess broadcast">
-          <svg class="spin-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 4v3.5h3.5"/>
-            <path d="M15 12v-3.5h-3.5"/>
-            <path d="M13.5 6A6 6 0 0 0 2.8 5.1L1 7.5"/>
-            <path d="M2.5 10a6 6 0 0 0 10.7.9l1.8-2.4"/>
+        <button id="refreshBtn" class="pill-btn" title="Sync latest Lichess broadcast">
+          <svg class="spin-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M1.5 4.2v3.3h3.3"/>
+            <path d="M14.5 11.8V8.5h-3.3"/>
+            <path d="M13.3 5.8A5.8 5.8 0 0 0 2.9 5L1.5 7.5"/>
+            <path d="M2.7 10.2a5.8 5.8 0 0 0 10.4.8l1.4-2.5"/>
           </svg>
           <span id="refreshLabel">Sync</span>
         </button>
@@ -146,18 +163,18 @@
         </label>
       </div>
 
+      <span class="micro-status" id="statusBar">Connecting…</span>
+
       <a id="lichessLink" class="stream-link" href="https://lichess.org/broadcast/fide-world-chess-championship-2026/qfkdt8mn" target="_blank" rel="noopener">
-        <span>Lichess Board</span>
-        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 3h7v7"/>
-          <path d="M13 3 7 9"/>
+        <span>Lichess</span>
+        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5.5 3.5h7v7"/>
+          <path d="M12.5 3.5 6 10"/>
         </svg>
       </a>
     </footer>
 
-    <div class="micro-status" id="statusBar">Connecting to Lichess…</div>
-
-  </div>
+  </main>
 
   <script type="module" src="popup.js"></script>
 </body>

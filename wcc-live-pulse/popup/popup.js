@@ -216,10 +216,10 @@ async function syncNow(silent = false) {
     snapshot = fresh;
     await chrome.storage.local.set({ [STORAGE_KEY]: fresh });
     renderSnapshot(fresh, true);
-    el.statusBar.textContent = `Lichess synced · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    el.statusBar.textContent = `Synced ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   } catch (err) {
     console.warn('[WCC] Sync failed:', err);
-    el.statusBar.textContent = snapshot ? 'Using cached Lichess data' : 'Offline · Unable to reach Lichess';
+    el.statusBar.textContent = snapshot ? 'Cached' : 'Offline';
   } finally {
     isSyncing = false;
     if (!silent) {
@@ -270,8 +270,8 @@ function formatStartTime(ms) {
 function renderSnapshot(data, updateClocks = true) {
   const { matchScore, matchExpectancy, activeRound: ar, nextRound, lastFinishedRound, isAnyGameLive } = data;
 
-  // Match score subtitle
-  el.matchScoreSub.textContent = `Score: Gukesh ${formatScoreNum(matchScore.gukesh)} – ${formatScoreNum(matchScore.sindarov)} Sindarov`;
+  // Match score chip
+  el.matchScoreSub.textContent = `${formatScoreNum(matchScore.gukesh)} – ${formatScoreNum(matchScore.sindarov)}`;
 
   // Link to exact Lichess board
   el.lichessLink.href = ar.url || data.tourUrl;
