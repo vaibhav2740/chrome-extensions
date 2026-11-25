@@ -1,0 +1,26 @@
+[Event "FIDE World Chess Championship Match"]
+[Site "Geneva, Switzerland"]
+[Date "2026.11.11"]
+[Round "2.1"]
+[White "Gukesh D"]
+[Black "Sindarov, Javokhir"]
+[Result "*"]
+[WhiteElo "2710"]
+[WhiteTitle "GM"]
+[WhiteFideId "46616543"]
+[BlackElo "2782"]
+[BlackTitle "GM"]
+[BlackFideId "14205483"]
+[TimeControl "120'/40m + 30'/end, 30/move from move 41"]
+[Variant "Standard"]
+[ECO "D02"]
+[Opening "Queen's Pawn Game: London System"]
+[UTCDate "2026.11.11"]
+[UTCTime "20:01:57"]
+[BroadcastName "FIDE World Chess Championship 2026"]
+[BroadcastURL "https://lichess.org/broadcast/fide-world-chess-championship-2026/game-2/L3j03TZq"]
+[GameURL "https://lichess.org/broadcast/fide-world-chess-championship-2026/game-2/L3j03TZq/p6HX9bPF"]
+
+1. d4 { [%clk 1:59:53] } 1... d5 { [%clk 1:59:34] } 2. Nf3 { [%clk 1:59:44] } 2... Nf6 { [%clk 1:59:15] } 3. Bf4 { [%clk 1:59:37] } 3... c5 { [%clk 1:58:24] } 4. e3 { [%clk 1:59:29] } 4... e6 { [%clk 1:57:49] } 5. Nbd2 { [%clk 1:58:38] } 5... Nc6 { [%clk 1:56:20] } 6. c3 { [%clk 1:58:22] } 6... Be7 { [%clk 1:56:06] } 7. Ne5 { [%clk 1:58:11] } 7... Qb6 { [%clk 1:54:18] } *
+
+

@@ -1,0 +1,15 @@
+{
+  "name": "zeitnot",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zeitnot Chrome extension. This file only exists for tests and packaging; Chrome ignores it.",
+  "scripts": {
+    "test": "node --test",
+    "icons": "python3 scripts/make-icons.py",
+    "pack": "sh scripts/pack.sh"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

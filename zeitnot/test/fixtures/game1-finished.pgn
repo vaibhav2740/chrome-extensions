@@ -1,0 +1,26 @@
+[Event "FIDE World Chess Championship Match"]
+[Site "Geneva, Switzerland"]
+[Date "2026.11.11"]
+[Round "1.1"]
+[White "Sindarov, Javokhir"]
+[Black "Gukesh D"]
+[Result "1/2-1/2"]
+[WhiteElo "2782"]
+[WhiteTitle "GM"]
+[WhiteFideId "14205483"]
+[BlackElo "2710"]
+[BlackTitle "GM"]
+[BlackFideId "46616543"]
+[TimeControl "120'/40m + 30'/end, 30/move from move 41"]
+[Variant "Standard"]
+[ECO "C67"]
+[Opening "Ruy Lopez: Berlin Defense, l'Hermet Variation, Berlin Wall Defense"]
+[UTCDate "2026.11.11"]
+[UTCTime "20:01:46"]
+[BroadcastName "FIDE World Chess Championship 2026"]
+[BroadcastURL "https://lichess.org/broadcast/fide-world-chess-championship-2026/game-1/xLgOJ6cb"]
+[GameURL "https://lichess.org/broadcast/fide-world-chess-championship-2026/game-1/xLgOJ6cb/j7pdr7s2"]
+
+1. e4 { [%eval 0.18] [%clk 1:59:50] } 1... e5 { [%eval 0.22] [%clk 1:59:52] } 2. Nf3 { [%eval 0.18] [%clk 1:59:37] } 2... Nc6 { [%eval 0.22] [%clk 1:59:45] } 3. Bb5 { [%eval 0.15] [%clk 1:59:20] } 3... Nf6 { [%eval 0.17] [%clk 1:59:36] } 4. O-O { [%eval 0.11] [%clk 1:58:09] } 4... Nxe4 { [%eval 0.14] [%clk 1:59:29] } 5. d4 { [%eval 0.14] [%clk 1:57:56] } 5... Nd6 { [%eval 0.16] [%clk 1:59:20] } 6. Bxc6 { [%eval 0.07] [%clk 1:57:44] } 6... dxc6 { [%eval 0.17] [%clk 1:59:12] } 7. dxe5 { [%eval 0.05] [%clk 1:57:38] } 7... Nf5 { [%eval 0.17] [%clk 1:59:07] } 8. Qxd8+ { [%eval 0.09] [%clk 1:57:29] } 8... Kxd8 { [%eval 0.17] [%clk 1:59:02] } 9. Rd1+ { [%eval 0.07] [%clk 1:57:22] } 9... Ke8 { [%eval 0.15] [%clk 1:57:37] } 10. Nc3 { [%eval 0.15] [%clk 1:57:14] } 10... Ne7 { [%eval 0.19] [%clk 1:54:15] } 11. h3 { [%eval 0.11] [%clk 1:56:59] } 11... Ng6 { [%eval 0.12] [%clk 1:47:17] } 12. Be3 { [%eval 0.04] [%clk 1:56:37] } 12... Be7 { [%eval 0.1] [%clk 1:34:45] } 13. Ne4 { [%eval 0.15] [%clk 1:54:43] } 13... Bd7 { [%eval 0.06] [%clk 1:19:13] } 14. c4 { [%eval -0.04] [%clk 1:31:51] } 14... a5 { [%eval 0.06] [%clk 1:16:37] } 15. Rd2 { [%eval 0.12] [%clk 1:23:12] } 15... a4 { [%eval 0.34] [%clk 1:07:23] } 16. Rad1 { [%eval 0.29] [%clk 1:19:14] } 16... Be6 { [%eval 0.3] [%clk 1:04:54] } 17. b3 { [%eval 0.39] [%clk 1:18:08] } 17... Bb4 { [%eval 0.36] [%clk 0:28:40] } 18. Re2 { [%eval 0.23] [%clk 1:15:48] } 18... h6 { [%eval 0.36] [%clk 0:23:30] } 19. Ng3 { [%eval 0.26] [%clk 0:57:11] } 19... c5 { [%eval 0.28] [%clk 0:16:29] } 20. Nh5 { [%eval 0.29] [%clk 0:55:56] } 20... Rg8 { [%eval 0.3] [%clk 0:16:18] } 21. g4 { [%eval 0.0] [%clk 0:47:20] } 21... Ke7 { [%eval 0.12] [%clk 0:15:51] } 22. Ne1 { [%eval 0.0] [%clk 0:27:41] } 22... axb3 { [%eval 0.09] [%clk 0:15:46] } 23. axb3 { [%eval 0.07] [%clk 0:27:22] } 23... Nxe5 { [%eval 0.1] [%clk 0:11:06] } 24. f4 { [%eval -0.02] [%clk 0:27:10] } 24... g6 { [%eval -0.02] [%clk 0:10:22] } 25. Ng3 { [%eval 0.0] [%clk 0:27:00] } 25... Nc6 { [%eval 0.0] [%clk 0:09:26] } 26. f5 { [%eval 0.0] [%clk 0:25:48] } 26... gxf5 { [%eval 0.0] [%clk 0:09:20] } 27. Nxf5+ { [%eval 0.0] [%clk 0:25:31] } 27... Kf6 { [%eval 0.0] [%clk 0:08:39] } 28. Rf2 { [%eval 0.0] [%clk 0:20:12] } 28... Rgd8 { [%eval 0.0] [%clk 0:08:16] } 29. Nd3 { [%eval 0.0] [%clk 0:19:17] } 29... Bxf5 { [%eval 0.0] [%clk 0:07:13] } 30. Rxf5+ { [%eval 0.0] [%clk 0:19:02] } 30... Kg7 { [%eval 0.0] [%clk 0:07:09] } 31. Rh5 { [%eval 0.0] [%clk 0:18:53] } 31... Bc3 { [%eval 0.0] [%clk 0:05:42] } 32. Bxh6+ { [%eval 0.0] [%clk 0:17:20] } 32... Kg8 { [%eval 0.0] [%clk 0:05:30] } 33. Rg5+ { [%eval 0.0] [%clk 0:16:54] } 33... Kh7 { [%eval 0.0] [%clk 0:05:24] } 34. Rh5 { [%eval 0.0] [%clk 0:16:51] } 34... Kg8 { [%eval 0.0] [%clk 0:04:49] } 35. Rg5+ { [%eval 0.0] [%clk 0:16:22] } 35... Kh7 { [%eval 0.0] [%clk 0:04:44] } 36. Rh5 { [%eval 0.0] [%clk 0:16:16] } 36... Kg8 { [%eval 0.0] [%clk 0:04:40] } 37. Rg5+ { [%eval 0.0] [%clk 0:16:03] } 37... Kh7 { [%eval 0.0] [%clk 0:06:38] } 38. Rh5 { [%eval 0.0] [%clk 0:15:51] } 38... Kg8 { [%eval 0.0] [%clk 0:06:32] } 1/2-1/2
+
+
