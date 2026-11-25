@@ -60,6 +60,70 @@ export function formatCountdown(msRemaining) {
   return `${mins}m ${String(secs).padStart(2, '0')}s`;
 }
 
+/**
+ * Computes Chrome action badge text, color, and tooltip title from a WCC snapshot.
+ */
+export function computeBadgeSpec(snapshot, now = Date.now()) {
+  if (!snapshot || !snapshot.activeRound) {
+    return { text: '', color: '#6366f1', title: 'WCC 2026 Live Pulse' };
+  }
+
+  const { activeRound: ar, matchScore, nextRound, isAnyGameLive } = snapshot;
+  const scoreStr = `Gukesh ${matchScore.gukesh}–${matchScore.sindarov} Sindarov`;
+
+  if (isAnyGameLive && ar.status === 'LIVE') {
+    let text = 'LIVE';
+    let color = '#10b981';
+
+    if (ar.mateIn !== null && ar.mateIn !== undefined) {
+      text = ar.mateIn > 0 ? `#${ar.mateIn}` : `-#${Math.abs(ar.mateIn)}`;
+      color = ar.mateIn > 0 ? '#0284c7' : '#059669';
+    } else if (ar.plyCount > 0) {
+      const v = Number(ar.evalPawns || 0);
+      if (Math.abs(v) < 0.05) {
+        text = '0.0';
+        color = '#7c3aed';
+      } else {
+        const formatted = `${v > 0 ? '+' : '-'}${Math.min(9.9, Math.abs(v)).toFixed(1)}`;
+        text = formatted;
+        color = v >= 0.4 ? '#0284c7' : v <= -0.4 ? '#059669' : '#7c3aed';
+      }
+    }
+
+    const evalDisplay =
+      ar.mateIn !== null && ar.mateIn !== undefined
+        ? text
+        : `${ar.evalPawns > 0 ? '+' : ''}${Number(ar.evalPawns || 0).toFixed(2)}`;
+    const title = `Game ${ar.roundNumber} LIVE · ${ar.white.name} ${ar.white.timeStr} vs ${ar.black.name} ${ar.black.timeStr} · Eval ${evalDisplay} (${scoreStr})`;
+    return { text, color, title };
+  }
+
+  if (nextRound && nextRound.startsAt) {
+    const msLeft = nextRound.startsAt - now;
+    if (msLeft > 0 && msLeft <= 30 * 60 * 1000) {
+      const mins = Math.max(1, Math.ceil(msLeft / 60000));
+      return {
+        text: `${mins}m`,
+        color: '#d97706',
+        title: `WCC 2026 (${scoreStr}) · ${nextRound.name} starts in ${mins}m`,
+      };
+    }
+    if (msLeft > 0) {
+      return {
+        text: '',
+        color: '#6366f1',
+        title: `WCC 2026 (${scoreStr}) · ${nextRound.name} in ${formatCountdown(msLeft)}`,
+      };
+    }
+  }
+
+  return {
+    text: '',
+    color: '#6366f1',
+    title: `WCC 2026 (${scoreStr})`,
+  };
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
