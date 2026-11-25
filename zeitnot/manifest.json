@@ -2,10 +2,13 @@
   "manifest_version": 3,
   "name": "Zeitnot: Live World Chess Championship",
   "version": "1.1.0",
-  "description": "Live FIDE World Chess Championship probabilities, match score, clock telemetry, and next-game countdown with Pawnshot liquid-glass HUD.",
+  "description": "Live World Chess Championship companion: match score, win/draw/loss and title odds, ticking clocks and a time-trouble alert, on a toolbar badge and in a popup. Data from the free Lichess broadcast.",
   "permissions": [
     "storage",
     "alarms"
+  ],
+  "optional_permissions": [
+    "notifications"
   ],
   "host_permissions": [
     "https://lichess.org/*"
@@ -30,5 +33,5 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "minimum_chrome_version": "110"
+  "minimum_chrome_version": "120"
 }
