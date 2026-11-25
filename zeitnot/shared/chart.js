@@ -47,15 +47,24 @@ export function chartModel(moves, { kind, width = 332, height = 84, topIsWhite =
 
   const whitePts = [];
   const blackPts = [];
-  let max = 1;
-  for (const m of moves) if (m.c !== null && m.c !== undefined && m.c > max) max = m.c;
+  const clocks = moves.filter((m) => m.c !== null && m.c !== undefined).map((m) => m.c);
+  // The axis is zoomed to the clocks seen (rounded to a tidy step), so an early-game chart still shows who is spending
+  // time. `axis` carries the two bounds so the popup can label them.
+  let hi = clocks.length ? Math.max(...clocks) : 1;
+  let lo = clocks.length ? Math.min(...clocks) : 0;
+  const range = hi - lo;
+  const step = range > 3600 ? 900 : range > 1200 ? 300 : 60;
+  hi = Math.ceil(hi / step) * step;
+  lo = Math.max(0, Math.floor((lo - range * 0.1) / step) * step);
+  if (hi - lo < step) hi = lo + step;
   moves.forEach((m, i) => {
     if (m.c === null || m.c === undefined) return;
-    const p = { x: xFor(i + 1, span, width), y: PAD_Y + (1 - m.c / max) * (height - 2 * PAD_Y), ply: i + 1 };
+    const p = { x: xFor(i + 1, span, width), y: PAD_Y + (1 - (m.c - lo) / (hi - lo)) * (height - 2 * PAD_Y), ply: i + 1 };
     (m.b ? blackPts : whitePts).push(p);
   });
   return {
-    kind, width, height, mid, maxSec: max,
+    kind, width, height, mid,
+    axis: { hi, lo },
     hasData: whitePts.length + blackPts.length > 0,
     white: linePath(whitePts),
     black: linePath(blackPts),

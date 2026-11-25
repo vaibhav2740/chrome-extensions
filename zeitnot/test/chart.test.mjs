@@ -44,7 +44,9 @@ test('a live game with no evals has no eval chart, but it does have clocks', () 
 
 test('clock chart: lines fall over the game and stay in bounds', () => {
   const c = chartModel(finished, { kind: 'clock' });
-  assert.equal(c.maxSec, Math.max(...finished.map((m) => m.c)));
+  const seen = finished.map((m) => m.c);
+  assert(c.axis.hi >= Math.max(...seen) && c.axis.lo <= Math.min(...seen), 'the axis covers every clock');
+  assert(c.axis.hi % 300 === 0 && c.axis.lo % 300 === 0, 'with tidy bounds');
   for (const p of c.whitePoints.concat(c.blackPoints)) assert(p.y >= 6 && p.y <= 78 && Number.isFinite(p.x));
   const first = c.whitePoints[0];
   const last = c.whitePoints[c.whitePoints.length - 1];
@@ -68,4 +70,14 @@ test('hovering finds the nearest ply; one point still draws a mark', () => {
   const one = chartModel([{ n: 1, b: 0, s: 'e4', c: 7100, e: 0.2, m: null }], { kind: 'eval' });
   assert.match(one.line, /^M[\d.]+ [\d.]+h0\.01$/);
   assert.equal(one.area, '');
+});
+
+test('the clock axis zooms to the game: an early game is not squashed against the top', () => {
+  const early = chartModel(live, { kind: 'clock' });
+  assert(early.axis.hi - early.axis.lo <= 600, `a 14-ply game spans ${early.axis.hi - early.axis.lo} s of axis, not 2 h`);
+  const ys = early.whitePoints.concat(early.blackPoints).map((p) => p.y);
+  assert(Math.max(...ys) - Math.min(...ys) > 10, 'the two clocks are visibly apart');
+  assert(early.axis.hi >= 7193 && early.axis.lo <= 6858);
+  const one = chartModel([{ n: 1, b: 0, s: 'e4', c: 7100, e: null, m: null }], { kind: 'clock' });
+  assert(Number.isFinite(one.whitePoints[0].y) && one.axis.hi > one.axis.lo);
 });
